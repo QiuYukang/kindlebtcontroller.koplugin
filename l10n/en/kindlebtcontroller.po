@@ -1,0 +1,312 @@
+# English translation for kindlebtcontroller.koplugin
+# Copyright (c) 2025 qiuyukang
+# This file is distributed under the MIT license.
+#
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "蓝牙控制器"
+msgstr "Bluetooth Controller"
+
+msgid "蓝牙开关"
+msgstr "Bluetooth Toggle"
+
+msgid "已连接设备：蓝牙已关闭"
+msgstr "Connected Device: Bluetooth Off"
+
+msgid "已连接设备：无"
+msgstr "Connected Device: None"
+
+msgid "已连接设备：%s"
+msgstr "Connected Device: %s"
+
+msgid "重载设备"
+msgstr "Reload Device"
+
+msgid "按键检测"
+msgstr "Key Tester"
+
+msgid "按键配置"
+msgstr "Key Config"
+
+msgid "蓝牙已开启"
+msgstr "Bluetooth Enabled"
+
+msgid "蓝牙已禁用"
+msgstr "Bluetooth Disabled"
+
+msgid "开/关 蓝牙"
+msgstr "Toggle Bluetooth"
+
+msgid "重载蓝牙设备"
+msgstr "Reload Bluetooth Device"
+
+msgid "✓ 蓝牙设备已连接：%s"
+msgstr "✓ Bluetooth Device Connected: %s"
+
+msgid "✗ 蓝牙设备连接失败"
+msgstr "✗ Bluetooth Device Connection Failed"
+
+msgid "蓝牙设备已断开"
+msgstr "Bluetooth Device Disconnected"
+
+msgid "蓝牙设备已连接"
+msgstr "Bluetooth Device Connected"
+
+msgid "下一页"
+msgstr "Next Page"
+
+msgid "上一页"
+msgstr "Previous Page"
+
+msgid "下十页"
+msgstr "Forward 10 Pages"
+
+msgid "上十页"
+msgstr "Back 10 Pages"
+
+msgid "下一章"
+msgstr "Next Chapter"
+
+msgid "上一章"
+msgstr "Previous Chapter"
+
+msgid "下一书签"
+msgstr "Next Bookmark"
+
+msgid "上一书签"
+msgstr "Previous Bookmark"
+
+msgid "最后书签"
+msgstr "Last Bookmark"
+
+msgid "增加亮度"
+msgstr "Increase Brightness"
+
+msgid "减少亮度"
+msgstr "Decrease Brightness"
+
+msgid "增加色温"
+msgstr "Increase Warmth"
+
+msgid "减少色温"
+msgstr "Decrease Warmth"
+
+msgid "增大字号"
+msgstr "Increase Font Size"
+
+msgid "减小字号"
+msgstr "Decrease Font Size"
+
+msgid "显示/隐藏状态栏"
+msgstr "Toggle Status Bar"
+
+msgid "添加/取消书签"
+msgstr "Toggle Bookmark"
+
+msgid "切换夜间模式"
+msgstr "Toggle Night Mode"
+
+msgid "全刷屏幕"
+msgstr "Full Screen Refresh"
+
+msgid "返回首页"
+msgstr "Go Home"
+
+msgid "上传阅读进度"
+msgstr "Push Reading Progress"
+
+msgid "拉取阅读进度"
+msgstr "Pull Reading Progress"
+
+msgid "同步阅读统计"
+msgstr "Sync Book Stats"
+
+msgid "截图"
+msgstr "Screenshot"
+
+# Key names
+msgid "A键"
+msgstr "Button A"
+
+msgid "B键"
+msgstr "Button B"
+
+msgid "X键"
+msgstr "Button X"
+
+msgid "Y键"
+msgstr "Button Y"
+
+msgid "L键"
+msgstr "Button L"
+
+msgid "R键"
+msgstr "Button R"
+
+msgid "L2键"
+msgstr "Button L2"
+
+msgid "R2键"
+msgstr "Button R2"
+
+msgid "TL2键"
+msgstr "Button TL2"
+
+msgid "TR2键"
+msgstr "Button TR2"
+
+msgid "摇杆按下"
+msgstr "Stick Press"
+
+msgid "START键"
+msgstr "START"
+
+msgid "HOME键"
+msgstr "HOME"
+
+msgid "左摇杆"
+msgstr "Left Stick"
+
+msgid "右摇杆"
+msgstr "Right Stick"
+
+msgid "上方向"
+msgstr "D-Pad Up"
+
+msgid "下方向"
+msgstr "D-Pad Down"
+
+msgid "左方向"
+msgstr "D-Pad Left"
+
+msgid "右方向"
+msgstr "D-Pad Right"
+
+msgid "ENTER键"
+msgstr "ENTER"
+
+msgid "ESC键"
+msgstr "ESC"
+
+msgid "SPACE键"
+msgstr "SPACE"
+
+msgid "按键检测（按手柄按键，点击可编辑映射）"
+msgstr "Key Tester (Press controller buttons, tap to edit mapping)"
+
+msgid "按键检测\n请按手柄按键..."
+msgstr "Key Tester\nPress controller buttons..."
+
+msgid "退出检测"
+msgstr "Exit Tester"
+
+msgid "...共检测到 %d 个按键"
+msgstr "...%d keys detected in total"
+
+msgid "为 %s（键码 %d）选择动作"
+msgstr "Select action for %s (keycode %d)"
+
+msgid "为 轴%d值%d 选择动作"
+msgstr "Select action for axis %d value %d"
+
+msgid "按键 %s（%d）未配置映射"
+msgstr "Key %s (%d) has no mapping"
+
+msgid "未设置"
+msgstr "Not Set"
+
+msgid "设备路径：%s"
+msgstr "Device Path: %s"
+
+msgid "按键配置（点击可编辑）"
+msgstr "Key Config (Tap to edit)"
+
+msgid "暂无映射"
+msgstr "No Mappings"
+
+msgid "＋ 添加映射"
+msgstr "＋ Add Mapping"
+
+msgid "关闭"
+msgstr "Close"
+
+msgid "选择映射类型"
+msgstr "Select Mapping Type"
+
+msgid "按键"
+msgstr "Key"
+
+msgid "摇杆轴"
+msgstr "Joystick Axis"
+
+msgid "取消"
+msgstr "Cancel"
+
+msgid "输入键码"
+msgstr "Enter Key Code"
+
+msgid "请输入键码（使用按键检测功能获取）："
+msgstr "Enter key code (use Key Tester to find it):"
+
+msgid "确定"
+msgstr "OK"
+
+msgid "请输入有效的数字键码"
+msgstr "Please enter a valid numeric key code"
+
+msgid "输入摇杆轴"
+msgstr "Enter Joystick Axis"
+
+msgid "请输入轴代码和值（例如：0,-32767）："
+msgstr "Enter axis code and value (e.g., 0,-32767):"
+
+msgid "格式错误！请使用：轴代码,值"
+msgstr "Format error! Use: axis_code,value"
+
+msgid "确认选择"
+msgstr "Confirm"
+
+msgid "请至少选择一个动作"
+msgstr "Please select at least one action"
+
+msgid "已保存：%s → %s"
+msgstr "Saved: %s → %s"
+
+msgid "已保存：轴%d值%d → %s"
+msgstr "Saved: Axis %d Value %d → %s"
+
+msgid "修改动作"
+msgstr "Edit Action"
+
+msgid "选择新动作"
+msgstr "Select New Actions"
+
+msgid "已更新 → %s"
+msgstr "Updated → %s"
+
+msgid "删除映射"
+msgstr "Delete Mapping"
+
+msgid "返回"
+msgstr "Back"
+
+msgid "确定要删除此映射吗？"
+msgstr "Are you sure you want to delete this mapping?"
+
+msgid "删除"
+msgstr "Delete"
+
+msgid "已删除：%s"
+msgstr "Deleted: %s"
+
+msgid "已删除：轴%d值%d"
+msgstr "Deleted: Axis %d Value %d"
+
+msgid "选择动作（%s，键码 %d）"
+msgstr "Select Action (%s, keycode %d)"
+
+msgid "选择动作（轴 %d，值 %d）"
+msgstr "Select Action (Axis %d, Value %d)"

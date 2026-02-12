@@ -7,74 +7,129 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local Event = require("ui/event")
 local logger = require("logger")
 local DataStorage = require("datastorage")
-local _ = require("gettext")
+local _ = require("gettext_btcontroller")
 local ffi = require("ffi")
 local C = ffi.C
 
--- 初始化管理器
 local BluetoothStateManager = require("bluetooth_state_manager")
+
+-- =======================================================
+--  统一动作注册表（表驱动，单一数据源）
+--  每个 action 只需在此处定义一次，即可自动用于：
+--    执行、名称显示、可选列表、映射编辑
+-- =======================================================
+
+local ACTION_REGISTRY = {
+    -- { id, 名称（中文默认，用 _() 包裹支持多语言）, 执行函数 }
+    { id = "next_page",           name = _("下一页"),           exec = function() UIManager:sendEvent(Event:new("GotoViewRel", 1)) end },
+    { id = "prev_page",           name = _("上一页"),           exec = function() UIManager:sendEvent(Event:new("GotoViewRel", -1)) end },
+    { id = "fast_next_page",      name = _("下十页"),           exec = function() UIManager:sendEvent(Event:new("GotoViewRel", 10)) end },
+    { id = "fast_prev_page",      name = _("上十页"),           exec = function() UIManager:sendEvent(Event:new("GotoViewRel", -10)) end },
+    { id = "next_chapter",        name = _("下一章"),           exec = function() UIManager:sendEvent(Event:new("GotoNextChapter")) end },
+    { id = "prev_chapter",        name = _("上一章"),           exec = function() UIManager:sendEvent(Event:new("GotoPrevChapter")) end },
+    { id = "next_bookmark",       name = _("下一书签"),         exec = function() UIManager:sendEvent(Event:new("GotoNextBookmarkFromPage")) end },
+    { id = "prev_bookmark",       name = _("上一书签"),         exec = function() UIManager:sendEvent(Event:new("GotoPreviousBookmarkFromPage")) end },
+    { id = "last_bookmark",       name = _("最后书签"),         exec = function() UIManager:sendEvent(Event:new("GoToLatestBookmark")) end },
+    { id = "increase_brightness", name = _("增加亮度"),         exec = function() UIManager:sendEvent(Event:new("IncreaseFlIntensity", 1)) end },
+    { id = "decrease_brightness", name = _("减少亮度"),         exec = function() UIManager:sendEvent(Event:new("DecreaseFlIntensity", 1)) end },
+    { id = "increase_warmth",     name = _("增加色温"),         exec = function() UIManager:sendEvent(Event:new("IncreaseFlWarmth", 1)) end },
+    { id = "decrease_warmth",     name = _("减少色温"),         exec = function() UIManager:sendEvent(Event:new("IncreaseFlWarmth", -1)) end },
+    { id = "increase_font_size",  name = _("增大字号"),         exec = function() UIManager:sendEvent(Event:new("IncreaseFontSize", 1)) end },
+    { id = "decrease_font_size",  name = _("减小字号"),         exec = function() UIManager:sendEvent(Event:new("DecreaseFontSize", -1)) end },
+    { id = "toggle_statusbar",    name = _("显示/隐藏状态栏"),  exec = function() UIManager:sendEvent(Event:new("ToggleFooterMode")) end },
+    { id = "toggle_bookmark",     name = _("添加/取消书签"),    exec = function() UIManager:sendEvent(Event:new("ToggleBookmark")) end },
+    { id = "toggle_night_mode",   name = _("切换夜间模式"),     exec = function() UIManager:sendEvent(Event:new("ToggleNightMode")) end },
+    { id = "full_refresh",        name = _("全刷屏幕"),         exec = function() UIManager:sendEvent(Event:new("FullRefresh")) end },
+    { id = "go_home",             name = _("返回首页"),         exec = function() UIManager:sendEvent(Event:new("Home")) end },
+    { id = "push_progress",       name = _("上传阅读进度"),     exec = function() UIManager:sendEvent(Event:new("KOSyncPushProgress")) end },
+    { id = "pull_progress",       name = _("拉取阅读进度"),     exec = function() UIManager:sendEvent(Event:new("KOSyncPullProgress")) end },
+    { id = "sync_book_stat",      name = _("同步阅读统计"),     exec = function() UIManager:sendEvent(Event:new("SyncBookStats")) end },
+    { id = "screenshot",          name = _("截图"),             exec = function() UIManager:sendEvent(Event:new("Screenshot")) end },
+}
+
+-- 从注册表构建快速查找索引
+local ACTION_EXEC_MAP = {}   -- id -> 执行函数
+local ACTION_NAME_MAP = {}   -- id -> 显示名称
+local ACTION_ID_LIST = {}    -- 有序 id 列表（用于 UI 选择）
+
+for _, entry in ipairs(ACTION_REGISTRY) do
+    ACTION_EXEC_MAP[entry.id] = entry.exec
+    ACTION_NAME_MAP[entry.id] = entry.name
+    table.insert(ACTION_ID_LIST, entry.id)
+end
+
+-- 按键名称表
+local KEY_NAMES = {
+    [304] = _("A键"), [305] = _("B键"), [306] = _("X键"), [307] = _("Y键"),
+    [308] = _("L键"), [309] = _("R键"), [310] = _("L2键"), [311] = _("R2键"),
+    [312] = _("TL2键"), [313] = _("TR2键"), [314] = _("摇杆按下"), [315] = _("START键"),
+    [316] = _("HOME键"), [317] = _("左摇杆"), [318] = _("右摇杆"),
+    [103] = _("上方向"), [108] = _("下方向"), [105] = _("左方向"), [106] = _("右方向"),
+    [28] = _("ENTER键"), [1] = _("ESC键"), [57] = _("SPACE键"),
+}
+
+-- =======================================================
+--  BluetoothController 定义
+-- =======================================================
 
 local BluetoothController = WidgetContainer:extend {
     name = "BluetoothController",
-    
+
     last_action_time = 0,
     target_state = false,
 
     -- 按键检测状态
-    key_detection_active = false,
-    key_detection_dialog = nil,
-    detected_keys = {},  -- 存储检测到的按键
+    testing_mode = false,
 
-    -- 先设置一个空的默认配置，在 init 中动态加载
     config = {},
-    
-    -- 按键映射配置路径：koreader/setting/bluetooth.lua
-    settings_file = DataStorage:getSettingsDir() .. "/bluetooth.lua",
+
+    -- 设置文件路径
+    settings_file = DataStorage:getSettingsDir() .. "/kindlebtcontroller.lua",
+
+    -- 自动重连定时器标记
+    reconnect_timer_active = false,
+    RECONNECT_INTERVAL = 2,       -- 检测间隔（秒）
+    RECONNECT_RELOAD_DELAY = 1,   -- 重连后延迟重载（秒）
 }
 
+-- =======================================================
+--  初始化
+-- =======================================================
+
 function BluetoothController:init()
-    -- 添加调试日志
-    local logger = require("logger")
-    logger.dbg("蓝牙插件：开始初始化")
-    
-    if not Device:isKindle() then 
-        logger.dbg("蓝牙插件：非Kindle设备，退出")
-        return 
+    logger.info("蓝牙插件：开始初始化")
+
+    if not Device:isKindle() then
+        logger.info("蓝牙插件：非Kindle设备，退出")
+        return
     end
 
-    logger.dbg("蓝牙插件：正在加载默认设置...")
     self:loadConfig()
-    
-    logger.dbg("蓝牙插件：正在加载设置...")
     self:loadSettings()
-    
-    logger.dbg("蓝牙插件：正在注册菜单...")
-    self.ui.menu:registerToMainMenu(self)
-    
-    logger.dbg("蓝牙插件：正在注册快捷键...")
-    self:onDispatcherRegisterActions()
-    
-    -- 防止钩子重复叠加
-    logger.dbg("蓝牙插件：正在注册输入钩子...")
-    self:registerInputHook()
-    
-    -- 启动连接
-    logger.dbg("蓝牙插件：正在连接设备...")
-    self:ensureConnected()
 
-    -- 绑定全局变量
+    self.ui.menu:registerToMainMenu(self)
+    self:onDispatcherRegisterActions()
+    self:registerInputHook()
+
     _G.KOBluetoothStateManager = BluetoothStateManager:getInstance()
-    
-    logger.dbg("蓝牙插件：初始化完成")
+
+    -- 只在首次初始化时连接设备并启动重连检测
+    -- 第二次初始化（打开书籍时）跳过，避免与 KOReader 内部的设备管理冲突
+    if not _G._bt_device_initialized then
+        _G._bt_device_initialized = true
+        self:ensureConnected()
+        self:startReconnectWatcher()
+    end
+
+    logger.info("蓝牙插件：初始化完成")
 end
 
 -- =======================================================
 --  配置加载与保存
 -- =======================================================
 
--- 尝试动态加载
 function BluetoothController:loadConfig()
-    local config_path = self.path .. "/" .. "config.lua"
+    local config_path = self.path .. "/config.lua"
     local file = io.open(config_path, "r")
     if file then
         local content = file:read("*all")
@@ -82,193 +137,256 @@ function BluetoothController:loadConfig()
         local func = loadstring(content)
         if func then
             self.config = func()
+            return
         end
     end
-    
-    logger.warn("BT Plugin: Cannot found config.lua")
+    logger.warn("BT Plugin: Cannot found config.lua, using empty config")
 end
 
 function BluetoothController:loadSettings()
-    local logger = require("logger")
-    logger.dbg("蓝牙插件：开始加载设置")
-    
-    -- 检查 config.lua 是否加载成功
-    logger.dbg("默认配置：", self.config)
-
-    local f = io.open(self.settings_file, "r")
-    if f then
-        local c = f:read("*all")
-        f:close()
-        local func = loadstring(c)
-        if func then
-            local u = func()
-            if u then 
-                -- 合并用户设置到默认配置
-                for k, v in pairs(u) do
-                    if type(v) == "table" and type(self.config[k]) == "table" then
-                        -- 如果是表，则合并子项
-                        for sub_k, sub_v in pairs(v) do
-                            self.config[k][sub_k] = sub_v
-                        end
-                    else
-                        -- 否则直接覆盖
-                        self.config[k] = v
-                    end
-                end
-            end
-        end
-    else
-        -- 首次运行，保存默认配置
+    local file = io.open(self.settings_file, "r")
+    if not file then
         self:saveSettings()
+        return
+    end
+
+    local content = file:read("*all")
+    file:close()
+    local func = loadstring(content)
+    if not func then return end
+
+    local user_settings = func()
+    if not user_settings then return end
+
+    -- 合并用户设置到默认配置
+    for key, value in pairs(user_settings) do
+        if type(value) == "table" and type(self.config[key]) == "table" then
+            for sub_key, sub_value in pairs(value) do
+                self.config[key][sub_key] = sub_value
+            end
+        else
+            self.config[key] = value
+        end
     end
 end
 
--- 支持缩进和排序的保存函数
 function BluetoothController:saveSettings()
-    local f = io.open(self.settings_file, "w")
-    if f then
-        -- 递归序列化函数，带缩进层级
-        local function serialize(o, level)
-            level = level or 0
-            local indent = string.rep("    ", level)
-            local next_indent = string.rep("    ", level + 1)
+    local file = io.open(self.settings_file, "w")
+    if not file then return end
 
-            if type(o) == "table" then
-                local s = "{\n"
-                
-                -- 获取所有 Key 并排序
-                local keys = {}
-                for k in pairs(o) do table.insert(keys, k) end
-                table.sort(keys, function(a, b) 
-                    return tostring(a) < tostring(b) 
-                end)
+    local function serialize(object, level)
+        level = level or 0
+        local indent = string.rep("    ", level)
+        local next_indent = string.rep("    ", level + 1)
 
-                for _, k in ipairs(keys) do
-                    local v = o[k]
-                    local k_str
-                    if type(k) == "number" then
-                        k_str = "[" .. k .. "]"
-                    else
-                        k_str = "[\"" .. tostring(k) .. "\"]"
-                    end
-                    
-                    s = s .. next_indent .. k_str .. " = " .. serialize(v, level + 1) .. ",\n"
-                end
-                return s .. indent .. "}"
-            elseif type(o) == "string" then
-                return string.format("%q", o)
-            else
-                return tostring(o)
+        if type(object) == "table" then
+            local parts = { "{\n" }
+            local keys = {}
+            for key in pairs(object) do table.insert(keys, key) end
+            table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+
+            for _, key in ipairs(keys) do
+                local key_str = type(key) == "number"
+                    and "[" .. key .. "]"
+                    or  "[\"" .. tostring(key) .. "\"]"
+                table.insert(parts, next_indent .. key_str .. " = " .. serialize(object[key], level + 1) .. ",\n")
             end
+            table.insert(parts, indent .. "}")
+            return table.concat(parts)
+        elseif type(object) == "string" then
+            return string.format("%q", object)
+        else
+            return tostring(object)
         end
-
-        f:write("return " .. serialize(self.config))
-        f:close()
     end
+
+    file:write("return " .. serialize(self.config))
+    file:close()
 end
 
 -- =======================================================
---  钩子管理逻辑
+--  输入钩子管理
 -- =======================================================
 
 function BluetoothController:registerInputHook()
-    if Device.input._bt_hook_ref then
-        -- 针对没有自动清理的情况, 尝试从表中移除
-        if Device.input.event_adjust_hooks then
-            for i, hook in ipairs(Device.input.event_adjust_hooks) do
-                if hook == Device.input._bt_hook_ref then
-                    table.remove(Device.input.event_adjust_hooks, i)
-                    logger.warn("BT Plugin: Manual reload detected - Cleaned up old hook")
-                    break
-                end
-            end
-        end
-        Device.input._bt_hook_ref = nil
+    -- 使用全局变量存储当前活跃的 controller 实例
+    -- KOReader 的 registerEventAdjustHook 是链式调用，无法移除已注册的钩子
+    -- 所以只注册一次钩子，通过全局变量引用当前活跃实例
+    _G._bt_controller_instance = self
+
+    if _G._bt_hook_registered then
+        logger.info("BT Plugin: Hook already registered, updated controller instance")
+        return
     end
 
-    local hook_func = function(input_instance, ev)
-        self:handleInputEvent(ev)
+    local hook_func = function(_input_instance, ev)
+        local controller = _G._bt_controller_instance
+        if controller then
+            controller:handleInputEvent(ev)
+        end
     end
 
     Device.input:registerEventAdjustHook(hook_func)
-    Device.input._bt_hook_ref = hook_func
+    _G._bt_hook_registered = true
+    logger.info("BT Plugin: Hook registered (first time)")
 end
 
 -- =======================================================
---  连接管理逻辑
+--  设备连接管理
 -- =======================================================
 
 function BluetoothController:ensureConnected()
     local input = Device.input
     local path = self.config.device_path
-    if not input then return end
+    if not input or not path then return false end
 
-    -- 1. 如果已经连接了，直接退出
     if input.opened_devices and input.opened_devices[path] then
         return true
     end
 
-    -- 2. 先检查设备文件是否存在
-    local f = io.open(path, "r")
-    if f then
-        f:close()
-        logger.info("BT Plugin: Device " .. path .. " found")
-    else
-        -- 文件不存在，说明没开手柄。
-        logger.info("BT Plugin: Device " .. path .. " not found (Controller off?)")
+    local file = io.open(path, "r")
+    if not file then
+        logger.info("BT Plugin: Device " .. path .. " not found")
         return false
     end
+    file:close()
 
-    -- 3. 只有确认文件存在，才尝试从内核挂载
-    logger.warn("BT Plugin: Found device, connecting to " .. path)
+    logger.warn("BT Plugin: Connecting to " .. path)
     local ok, err = pcall(function() input:open(path) end)
-    
     if not ok then
-        -- 只有当文件存在却打不开时，才打印报错
         logger.warn("BT Plugin: Failed to open -> " .. tostring(err))
     end
-    
     return ok
 end
 
 function BluetoothController:reloadDevice()
     local input = Device.input
     local path = self.config.device_path
-    if not input then return end
-    
+    if not input or not path then return false end
+
     if input.opened_devices and input.opened_devices[path] then
-        logger.warn("BT Plugin: Reload - Closing old connection " .. path)
+        logger.warn("BT Plugin: Closing old connection " .. path)
         pcall(function() input:close(path) end)
     end
-    
-    logger.warn("BT Plugin: Reload - Re-opening " .. path)
-    local ok, err = pcall(function() input:open(path) end)
-    
+
+    logger.warn("BT Plugin: Re-opening " .. path)
+    local ok, _err = pcall(function() input:open(path) end)
+
+    -- 重新注册输入钩子，确保 close/open 后钩子仍然有效
+    if ok then
+        self:registerInputHook()
+    end
+
     return ok
 end
 
+--- 检查蓝牙设备是否可用（蓝牙开启 + 设备文件存在）
+function BluetoothController:isDeviceAvailable()
+    if not _G.KOBluetoothStateManager or not _G.KOBluetoothStateManager:isOn() then
+        return false
+    end
+    local path = self.config.device_path
+    if not path then return false end
+    local file = io.open(path, "r")
+    if file then
+        file:close()
+        return true
+    end
+    return false
+end
+
 -- =======================================================
---  硬件状态逻辑
+--  自动重连检测
 -- =======================================================
 
--- function BluetoothController:getRealState()
---     local status, result = pcall(function()
---         local f = io.popen("lipc-get-prop com.lab126.btfd BTstate")
---         if not f then return nil end
---         local content = f:read("*all")
---         f:close()
---         return content
---     end)
---     if not status or not result then return false end
---     local state = tonumber(result) or 0
---     return state > 0
--- end
+function BluetoothController:startReconnectWatcher()
+    -- 使用全局变量防止多个实例重复启动 watcher
+    if _G._bt_reconnect_active then return end
+    _G._bt_reconnect_active = true
+    _G._bt_reconnect_in_progress = false
+    _G._bt_was_connected = self:isDeviceAvailable()
+    self:scheduleReconnectCheck()
+end
+
+function BluetoothController:stopReconnectWatcher()
+    _G._bt_reconnect_active = false
+    _G._bt_reconnect_in_progress = false
+end
+
+function BluetoothController:scheduleReconnectCheck()
+    if not _G._bt_reconnect_active then return end
+
+    UIManager:scheduleIn(self.RECONNECT_INTERVAL, function()
+        if not _G._bt_reconnect_active then return end
+        -- 始终使用全局实例，确保操作的是当前活跃的 controller
+        local controller = _G._bt_controller_instance
+        if not controller then return end
+
+        local available_now = controller:isDeviceAvailable()
+
+        if available_now and not _G._bt_was_connected and not _G._bt_reconnect_in_progress then
+            _G._bt_was_connected = true
+            _G._bt_reconnect_in_progress = true
+            logger.info("BT Plugin: Device reconnected, will reload in 1s")
+            UIManager:scheduleIn(controller.RECONNECT_RELOAD_DELAY, function()
+                _G._bt_reconnect_in_progress = false
+                local ctrl = _G._bt_controller_instance
+                if not ctrl then return end
+                if ctrl:isDeviceAvailable() then
+                    local ok = ctrl:reloadDevice()
+                    local device_name = ctrl:getConnectedDeviceName() or _("未知设备")
+                    if ok then
+                        UIManager:show(InfoMessage:new{
+                            text = string.format(_("蓝牙设备已连接：%s"), device_name),
+                            timeout = 2
+                        })
+                    end
+                end
+            end)
+        elseif not available_now and _G._bt_was_connected then
+            _G._bt_was_connected = false
+            UIManager:show(InfoMessage:new{
+                text = _("蓝牙设备已断开"),
+                timeout = 2,
+            })
+        end
+        -- 继续下一轮检测（通过当前活跃实例调用）
+        if controller then
+            controller:scheduleReconnectCheck()
+        end
+    end)
+end
+
+-- =======================================================
+--  蓝牙设备名称获取
+-- =======================================================
+
+function BluetoothController:getConnectedDeviceName()
+    local handle = io.popen("lipc-get-prop com.lab126.btfd BTconnectedDevName 2>/dev/null")
+    if not handle then return nil end
+    local result = handle:read("*a")
+    handle:close()
+
+    if result then
+        result = result:gsub("^%s*(.-)%s*$", "%1")
+        if result ~= "" then
+            return result
+        end
+    end
+    return nil
+end
+
+
+
+-- =======================================================
+--  蓝牙硬件状态控制
+-- =======================================================
 
 function BluetoothController:setBluetoothState(enable)
-    local val = enable and 0 or 1
-    os.execute(string.format("lipc-set-prop com.lab126.btfd BTflightMode %d", val))
+    local flight_mode_value = enable and 0 or 1
+    os.execute(string.format("lipc-set-prop com.lab126.btfd BTflightMode %d", flight_mode_value))
     local msg = enable and _("蓝牙已开启") or _("蓝牙已禁用")
-    UIManager:show(InfoMessage:new { text = msg, timeout = 2 })
+    UIManager:show(InfoMessage:new{ text = msg, timeout = 2 })
 end
 
 function BluetoothController:onDispatcherRegisterActions()
@@ -276,24 +394,44 @@ function BluetoothController:onDispatcherRegisterActions()
         category = "none",
         event = "ToggleBluetooth",
         title = _("开/关 蓝牙"),
-        device = true
+        device = true,
     })
     Dispatcher:registerAction("bluetooth_reload_device", {
         category = "none",
         event = "BluetoothReloadDevice",
         title = _("重载蓝牙设备"),
-        device = true
+        device = true,
+    })
+    Dispatcher:registerAction("bluetooth_key_tester", {
+        category = "none",
+        event = "BluetoothKeyTester",
+        title = _("按键检测"),
+        device = true,
+    })
+    Dispatcher:registerAction("bluetooth_key_config", {
+        category = "none",
+        event = "BluetoothKeyConfig",
+        title = _("按键配置"),
+        device = true,
     })
 end
 
-function BluetoothController:onToggleBluetooth()
-    local logger = require("logger")
-    logger.dbg("蓝牙插件：开/关蓝牙")
+function BluetoothController:onBluetoothKeyTester()
+    self:startKeyTester()
+end
 
+function BluetoothController:onBluetoothKeyConfig()
+    self:showKeyMappingEditor()
+end
+
+function BluetoothController:onToggleBluetooth()
     local now = os.time()
     local next_state
-    if (now - self.last_action_time) < 2 then next_state = not self.target_state
-    else next_state = not _G.KOBluetoothStateManager:isOn() end
+    if (now - self.last_action_time) < 2 then
+        next_state = not self.target_state
+    else
+        next_state = not _G.KOBluetoothStateManager:isOn()
+    end
     self.target_state = next_state
     self.last_action_time = now
     self:setBluetoothState(next_state)
@@ -301,825 +439,718 @@ function BluetoothController:onToggleBluetooth()
 end
 
 function BluetoothController:onBluetoothReloadDevice()
-    local logger = require("logger")
-    logger.dbg("蓝牙插件：重载设备")
-
     self:loadSettings()
     if self:reloadDevice() then
-        UIManager:show(InfoMessage:new{ text = _("✓ 蓝牙设备已连接"), timeout = 2 })
+        local device_name = self:getConnectedDeviceName() or _("未知")
+        UIManager:show(InfoMessage:new{
+            text = string.format(_("✓ 蓝牙设备已连接：%s"), device_name),
+            timeout = 2,
+        })
     else
         UIManager:show(InfoMessage:new{ text = _("✗ 蓝牙设备连接失败"), timeout = 2 })
     end
 end
 
 -- =======================================================
---  输入处理逻辑
+--  输入事件处理
 -- =======================================================
 
 function BluetoothController:handleInputEvent(ev)
-    local action = nil  -- 改为 action 而不是 dir
+    -- 按键检测模式：拦截所有按键和摇杆事件
+    if self.testing_mode then
+        self:handleTestModeEvent(ev)
+        return
+    end
 
-    if ev.type == C.EV_KEY then
-        if ev.value == 1 or ev.value == 2 then
-            action = self.config.key_map[ev.code]
-        end
-    elseif ev.type == C.EV_ABS then
-        if ev.value ~= 0 then
-            local axis_map = self.config.joy_map[ev.code]
-            if axis_map then
-                action = axis_map[ev.value]
-            end
+    local actions = nil
+
+    if ev.type == C.EV_KEY and (ev.value == 1 or ev.value == 2) then
+        actions = self:resolveActions(self.config.key_map, ev.code)
+    elseif ev.type == C.EV_ABS and ev.value ~= 0 and not self:isTouchscreenAbsEvent(ev.code) then
+        local axis_map = self.config.joy_map and self.config.joy_map[ev.code]
+        if axis_map then
+            actions = self:resolveActions(axis_map, ev.value)
         end
     end
 
-    if action then
-        self:executeAction(action)  -- 统一处理
-        ev.type = -1  -- 标记事件已处理
+    if actions then
+        logger.info(string.format("BT Plugin: Matched ev(type=%d code=%d value=%d) → %s",
+            ev.type, ev.code, ev.value, table.concat(actions, ", ")))
+        for _, action_id in ipairs(actions) do
+            self:executeAction(action_id)
+        end
+        ev.type = -1
+    else
+        -- 未匹配映射的按键/摇杆事件，弹出提示
+        if ev.type == C.EV_KEY and (ev.value == 1 or ev.value == 2) then
+            local key_name = self:getKeyName(ev.code)
+            UIManager:show(InfoMessage:new{
+                text = string.format(_("按键 %s（%d）未配置映射"), key_name, ev.code),
+                timeout = 1,
+            })
+        elseif ev.type == C.EV_ABS and ev.value ~= 0 and not self:isTouchscreenAbsEvent(ev.code) then
+            UIManager:show(InfoMessage:new{
+                text = string.format(_("摇杆 轴%d值%d 未配置映射"), ev.code, ev.value),
+                timeout = 1,
+            })
+        end
+    end
+end
+
+--- 从映射表中解析 action 列表，支持单个字符串或数组
+function BluetoothController:resolveActions(mapping_table, key)
+    if not mapping_table then return nil end
+    local value = mapping_table[key]
+    if not value then return nil end
+
+    if type(value) == "string" then
+        return { value }
+    elseif type(value) == "table" then
+        return value
+    end
+    return nil
+end
+
+-- =======================================================
+--  统一动作执行（表驱动）
+-- =======================================================
+
+function BluetoothController:executeAction(action_id)
+    local exec_func = ACTION_EXEC_MAP[action_id]
+    if exec_func then
+        exec_func(self)
+    else
+        logger.warn("BT Plugin: Unknown action: " .. tostring(action_id))
     end
 end
 
 -- =======================================================
---  统一动作执行
--- =======================================================
-
-function BluetoothController:executeAction(action)
-    -- 翻页
-    if action == "next_page" then
-        local dir = 1
-        if self.config.invert_layout then dir = -1 end
-        UIManager:sendEvent(Event:new("GotoViewRel", dir))
-    elseif action == "prev_page" then
-        local dir = -1
-        if self.config.invert_layout then dir = 1 end
-        UIManager:sendEvent(Event:new("GotoViewRel", dir))
-
-    -- 快速翻页
-    elseif action == "fast_next_page" then
-        local dir = 1
-        if self.config.invert_layout then dir = -1 end
-        UIManager:sendEvent(Event:new("GotoViewRel", dir * 10))
-    elseif action == "fast_prev_page" then
-        local dir = -1
-        if self.config.invert_layout then dir = 1 end
-        UIManager:sendEvent(Event:new("GotoViewRel", dir * 10))
-    
-    -- 章节导航
-    elseif action == "next_chapter" then
-        UIManager:sendEvent(Event:new("GotoNextChapter"))
-    elseif action == "prev_chapter" then
-        UIManager:sendEvent(Event:new("GotoPrevChapter"))
-
-    -- 书签导航
-    elseif action == "next_bookmark" then
-        UIManager:sendEvent(Event:new("GotoNextBookmarkFromPage"))
-    elseif action == "prev_bookmark" then
-        UIManager:sendEvent(Event:new("GotoPreviousBookmarkFromPage"))
-    elseif action == "last_bookmark" then
-        UIManager:sendEvent(Event:new("GoToLatestBookmark"))
-    
-    -- 亮度调节
-    elseif action == "increase_brightness" then
-        UIManager:sendEvent(Event:new("IncreaseFlIntensity", 1))
-    elseif action == "decrease_brightness" then
-        UIManager:sendEvent(Event:new("DecreaseFlIntensity", 1))
-    
-    -- 色温调节
-    elseif action == "increase_warmth" then
-        UIManager:sendEvent(Event:new("IncreaseFlWarmth", 1))
-    elseif action == "decrease_warmth" then
-        UIManager:sendEvent(Event:new("IncreaseFlWarmth", -1))
-    
-    -- 字体调节
-    elseif action == "increase_font_size" then
-        UIManager:sendEvent(Event:new("IncreaseFontSize", 2))
-    elseif action == "decrease_font_size" then
-        UIManager:sendEvent(Event:new("DecreaseFontSize", -2))
-    
-    -- 其他功能
-    elseif action == "toggle_statusbar" then
-        UIManager:sendEvent(Event:new("ToggleFooterMode"))
-    elseif action == "toggle_bookmark" then
-        UIManager:sendEvent(Event:new("ToggleBookmark"))
-    elseif action == "toggle_night_mode" then
-        UIManager:sendEvent(Event:new("ToggleNightMode"))
-    elseif action == "full_refresh" then
-        UIManager:sendEvent(Event:new("FullRefresh"))
-    elseif action == "go_home" then
-        UIManager:sendEvent(Event:new("Home"))
-    end
-end
-
--- =======================================================
---  按键检测功能
+--  按键检测功能（简化版：立即弹出提示）
 -- =======================================================
 
 function BluetoothController:startKeyTester()
     if self.testing_mode then return end
-    
-    local logger = require("logger")
-    logger.dbg("蓝牙插件：开始按键测试")
-    
+
     self.testing_mode = true
-    self.test_results = {}
-    self.test_start_time = os.time()
-    
-    -- 显示测试提示
-    self.test_dialog = InfoMessage:new{ 
-        text = _("按键测试模式已启动\n请按手柄按键...\n30秒后自动结束\n\n已检测到：0 个按键"), 
-        timeout = 30 
-    }
-    UIManager:show(self.test_dialog)
-    
-    -- 保存原始的处理函数
-    self.original_handle_input = self.handleInputEvent
-    
-    -- 创建测试专用的处理函数
-    self.handleInputEvent = function(self_ref, ev)
-        -- 如果是测试模式，记录所有EV_KEY事件
-        if self.testing_mode and ev.type == C.EV_KEY and (ev.value == 1 or ev.value == 2) then
-            logger.dbg(string.format("测试模式捕获按键：code=%d, value=%d", ev.code, ev.value))
-            
-            local key_name = self:getKeyName(ev.code)
-            
-            -- 检查是否已记录
-            local existing = false
-            for _, key in ipairs(self.test_results) do
-                if key.code == ev.code then
-                    key.count = (key.count or 1) + 1
-                    key.last_time = os.date("%H:%M:%S")
-                    existing = true
-                    break
-                end
-            end
-            
-            if not existing then
-                table.insert(self.test_results, {
-                    code = ev.code,
-                    name = key_name,
-                    count = 1,
-                    first_time = os.date("%H:%M:%S"),
-                    last_time = os.date("%H:%M:%S")
-                })
-            end
-            
-            -- 更新对话框
-            self:updateTestDialog()
-            
-            -- 标记事件已处理，防止重复
-            ev.type = -1
-            return true
-        end
-        
-        -- 非测试模式或非按键事件：调用原始处理函数
-        if self.original_handle_input then
-            return self.original_handle_input(self_ref, ev)
-        end
-        
-        return false
-    end
-    
-    logger.dbg("蓝牙插件：按键测试钩子已安装")
-    
-    -- 10秒后自动停止
-    UIManager:scheduleIn(30, function()
-        if self.testing_mode then
-            logger.dbg("蓝牙插件：自动停止测试")
-            self:stopKeyTester()
-        end
-    end)
+    -- 存储结构化检测记录：{ event_type="key"|"axis", code=N, value=N }
+    self.test_detected_events = {}
+    self.test_refresh_pending = false
+
+    logger.info("BT Plugin: Key tester started")
+    self:showTestDialog()
 end
 
-function BluetoothController:updateTestDialog()
-    if not self.test_dialog then return end
-    
-    local remaining = 30 - (os.time() - self.test_start_time)
-    if remaining < 0 then remaining = 0 end
-    
-    local text = _("按键测试模式\n请按手柄按键...")
-    text = text .. "\n" .. string.format(_("剩余时间：%d秒"), remaining)
-    text = text .. "\n" .. string.format(_("已检测到：%d 个不同按键"), #self.test_results)
-    
-    if #self.test_results > 0 then
-        text = text .. "\n\n" .. _("检测到的按键：")
-        for i, key in ipairs(self.test_results) do
-            text = text .. string.format("\n%s (键码：%d) - %d次", 
-                key.name, key.code, key.count or 1)
+--- 获取某个检测事件当前的映射描述
+function BluetoothController:getTestEventMappingDisplay(event)
+    if event.event_type == "key" then
+        local mapping = self.config.key_map and self.config.key_map[event.code]
+        if mapping then
+            return self:formatMappingActions(mapping)
+        end
+    elseif event.event_type == "axis" then
+        local axis_map = self.config.joy_map and self.config.joy_map[event.code]
+        if axis_map then
+            local mapping = axis_map[event.value]
+            if mapping then
+                return self:formatMappingActions(mapping)
+            end
         end
     end
-    
-    -- 更新对话框
-    UIManager:close(self.test_dialog)
-    self.test_dialog = InfoMessage:new{ 
-        text = text, 
-        timeout = math.ceil(remaining) + 1
-    }
-    UIManager:show(self.test_dialog)
+    return nil
 end
 
-function BluetoothController:stopKeyTester()
-    if not self.testing_mode then return end
-    
-    local logger = require("logger")
-    logger.dbg("蓝牙插件：停止按键测试")
-    
-    self.testing_mode = false
-    
-    -- 恢复原始处理函数
-    if self.original_handle_input then
-        self.handleInputEvent = self.original_handle_input
-        self.original_handle_input = nil
-    end
-    
-    -- 关闭对话框
+function BluetoothController:showTestDialog()
+    local ButtonDialog = require("ui/widget/buttondialog")
+
     if self.test_dialog then
         UIManager:close(self.test_dialog)
         self.test_dialog = nil
     end
-    
-    -- 显示最终结果
-    self:showTestResults()
+
+    local button_rows = {}
+
+    if #self.test_detected_events > 0 then
+        -- 只显示最近 6 条，避免对话框过长
+        local start_index = math.max(1, #self.test_detected_events - 5)
+        for i = start_index, #self.test_detected_events do
+            local event = self.test_detected_events[i]
+            local label
+            local mapping_display = self:getTestEventMappingDisplay(event)
+
+            if event.event_type == "key" then
+                label = string.format("%s（%d）", self:getKeyName(event.code), event.code)
+            else
+                label = string.format("轴%d 值%d", event.code, event.value)
+            end
+
+            if mapping_display then
+                label = label .. " → " .. mapping_display
+            else
+                label = label .. " → 未映射"
+            end
+
+            -- 每条记录一行：显示信息 + 编辑按钮
+            local captured_event = event
+            table.insert(button_rows, {
+                {
+                    text = label,
+                    callback = function()
+                        -- 暂停检测模式，打开编辑界面
+                        self:editTestEventMapping(captured_event)
+                    end,
+                },
+            })
+        end
+
+        if start_index > 1 then
+            table.insert(button_rows, {
+                { text = string.format(_("...共检测到 %d 个按键"), #self.test_detected_events), enabled = false },
+            })
+        end
+    end
+
+    -- 底部按钮
+    table.insert(button_rows, {
+        {
+            text = _("退出检测"),
+            callback = function()
+                self:stopKeyTester()
+            end,
+        },
+    })
+
+    local title = _("按键检测（按手柄按键，点击可编辑映射）")
+    if #self.test_detected_events == 0 then
+        title = _("按键检测\n请按手柄按键...")
+    end
+
+    self.test_dialog = ButtonDialog:new{
+        title = title,
+        buttons = button_rows,
+    }
+    UIManager:show(self.test_dialog)
+    self.test_refresh_pending = false
 end
 
-function BluetoothController:showTestResults()
-    local logger = require("logger")
-    
-    if #self.test_results == 0 then
-        logger.dbg("蓝牙插件：未检测到任何按键")
-        UIManager:show(InfoMessage:new{ 
-            text = _("未检测到任何按键\n\n调试建议:\n1. 确认手柄已连接且亮灯\n2. 尝试重载设备\n3. 尝试重启KOReader"), 
-            timeout = 5 
-        })
+--- 从检测界面编辑某个按键的映射
+function BluetoothController:editTestEventMapping(event)
+    local mapping_type, code, value
+    if event.event_type == "key" then
+        mapping_type = "key"
+        code = event.code
+        value = nil
     else
-        logger.dbg("蓝牙插件：检测到 " .. #self.test_results .. " 个不同按键")
-        
-        local lines = {_("=== 按键检测结果 ===")}
-        
-        -- 按键列表
-        table.insert(lines, _("\n检测到的按键："))
-        for i, key in ipairs(self.test_results) do
-            table.insert(lines, string.format("%d. %s（键码：%d）", 
-                i, key.name, key.code))
-            table.insert(lines, string.format("   首次：%s，最后：%s, 次数：%d", 
-                key.first_time, key.last_time, key.count or 1))
-        end
-        
-        -- 添加调试信息
-        table.insert(lines, _("\n调试信息："))
-        table.insert(lines, string.format(_("测试时长：%d秒"), 30))
-        table.insert(lines, string.format(_("总按键次数：%d"), 
-            self:sumKeyPresses()))
-        
-        UIManager:show(InfoMessage:new{ 
-            text = table.concat(lines, "\n"), 
-            timeout = 15 
-        })
+        mapping_type = "axis"
+        code = event.code
+        value = event.value
     end
-    
-    self.test_results = {}
+
+    local has_mapping = false
+    if mapping_type == "key" then
+        has_mapping = self.config.key_map and self.config.key_map[code] ~= nil
+    else
+        has_mapping = self.config.joy_map and self.config.joy_map[code] and self.config.joy_map[code][value] ~= nil
+    end
+
+    if has_mapping then
+        -- 已有映射，弹出编辑/删除界面
+        self:editSingleMapping(mapping_type, code, value, function()
+            self:showTestDialog()
+        end)
+    else
+        -- 无映射，直接进入选择动作界面
+        local title
+        if mapping_type == "key" then
+            title = string.format(_("为 %s（键码 %d）选择动作"), self:getKeyName(code), code)
+        else
+            title = string.format(_("为 轴%d值%d 选择动作"), code, value)
+        end
+        self:selectActions(title, function(selected_actions)
+            self:saveMappingAndApply(mapping_type,
+                mapping_type == "key" and code or nil,
+                mapping_type == "axis" and code or nil,
+                value, selected_actions,
+                function() self:showTestDialog() end)
+        end)
+    end
+end
+
+--- 判断 EV_ABS 事件是否来自触摸屏（而非手柄摇杆）
+function BluetoothController:isTouchscreenAbsEvent(code)
+    return code >= 47 and code <= 63
+end
+
+--- 请求刷新检测对话框（防抖：多次快速按键只刷新一次）
+function BluetoothController:requestTestDialogRefresh()
+    if self.test_refresh_pending then return end
+    self.test_refresh_pending = true
+    UIManager:nextTick(function()
+        if self.testing_mode then
+            self:showTestDialog()
+        end
+    end)
+end
+
+function BluetoothController:handleTestModeEvent(ev)
+    if ev.type == C.EV_KEY and (ev.value == 1 or ev.value == 2) then
+        local key_name = KEY_NAMES[ev.code] or "未知键"
+        logger.info(string.format("BT Plugin: Test detected key: %s (code=%d)", key_name, ev.code))
+        table.insert(self.test_detected_events, {
+            event_type = "key",
+            code = ev.code,
+        })
+        self:requestTestDialogRefresh()
+        ev.type = -1
+    elseif ev.type == C.EV_ABS and ev.value ~= 0 and not self:isTouchscreenAbsEvent(ev.code) then
+        logger.info(string.format("BT Plugin: Test detected axis: code=%d value=%d", ev.code, ev.value))
+        table.insert(self.test_detected_events, {
+            event_type = "axis",
+            code = ev.code,
+            value = ev.value,
+        })
+        self:requestTestDialogRefresh()
+        ev.type = -1
+    end
+end
+
+function BluetoothController:stopKeyTester()
+    if not self.testing_mode then return end
+    self.testing_mode = false
+    self.test_refresh_pending = false
+    logger.info("BT Plugin: Key tester stopped")
+
+    if self.test_dialog then
+        UIManager:close(self.test_dialog)
+        self.test_dialog = nil
+    end
+
+    self.test_detected_events = {}
 end
 
 -- =======================================================
---  按键映射编辑器功能
+--  辅助函数
+-- =======================================================
+
+function BluetoothController:getActionName(action_id)
+    return ACTION_NAME_MAP[action_id] or action_id
+end
+
+function BluetoothController:getKeyName(code)
+    return KEY_NAMES[code] or string.format("键码%d", code)
+end
+
+--- 格式化映射值用于显示（支持单个和多个 action）
+function BluetoothController:formatMappingActions(value)
+    if type(value) == "string" then
+        return self:getActionName(value)
+    elseif type(value) == "table" then
+        local names = {}
+        for _, action_id in ipairs(value) do
+            table.insert(names, self:getActionName(action_id))
+        end
+        return table.concat(names, " + ")
+    end
+    return "未知"
+end
+
+-- =======================================================
+--  按键映射编辑器（统一查看/编辑/添加界面）
 -- =======================================================
 
 function BluetoothController:showKeyMappingEditor()
     local ButtonDialog = require("ui/widget/buttondialog")
-    local InputDialog = require("ui/widget/inputdialog")
-    local logger = require("logger")
-    
-    logger.dbg("蓝牙插件：显示按键映射编辑器")
-    
-    -- 创建一个菜单对话框，显示当前的按键映射
+
+    if self.mapping_editor_dialog then
+        UIManager:close(self.mapping_editor_dialog)
+        self.mapping_editor_dialog = nil
+    end
+
     local button_rows = {}
 
-    -- 显示当前映射
+    -- 设备路径（显示在最上方，不可点击）
+    local device_path = self.config.device_path or _("未设置")
     table.insert(button_rows, {
-        {
-            text = _("查看当前映射"),
-            callback = function()
-                self:showCurrentMappings()
-            end,
-        }
+        { text = string.format(_("设备路径：%s"), device_path), enabled = false },
     })
-    
-    -- 添加新映射
-    table.insert(button_rows, {
-        {
-            text = _("添加按键映射"),
-            callback = function()
-                self:addKeyMapping()
-            end,
-        }
-    })
-    
-    -- 修改现有映射
-    table.insert(button_rows, {
-        {
-            text = _("修改按键映射"),
-            callback = function()
-                self:editKeyMapping()
-            end,
-        }
-    })
-    
-    -- 关闭按钮
-    table.insert(button_rows, {
-        {
-            text = _("关闭"),
-            callback = function()
-                UIManager:close(self.mapping_dialog)
-            end,
-        }
-    })
-    
-    self.mapping_dialog = ButtonDialog:new{
-        title = _("按键映射（修改重启生效）"),
-        buttons = button_rows,
-    }
-    UIManager:show(self.mapping_dialog)
-end
 
--- 显示当前所有映射
-function BluetoothController:showCurrentMappings()
-    local lines = {_("当前按键映射配置：")}
-    
-    -- 按键映射
+    -- 按键映射列表
     if self.config.key_map and next(self.config.key_map) then
-        table.insert(lines, "\n" .. _("按键映射："))
-        local key_codes = {}
-        for code, _ in pairs(self.config.key_map) do
-            table.insert(key_codes, code)
+        local sorted_codes = {}
+        for code in pairs(self.config.key_map) do table.insert(sorted_codes, code) end
+        table.sort(sorted_codes)
+
+        for _, code in ipairs(sorted_codes) do
+            local display = self:formatMappingActions(self.config.key_map[code])
+            table.insert(button_rows, {
+                {
+                    text = string.format("%s → %s", self:getKeyName(code), display),
+                    callback = function()
+                        UIManager:close(self.mapping_editor_dialog)
+                        self:editSingleMapping("key", code, nil, function()
+                            self:showKeyMappingEditor()
+                        end)
+                    end,
+                },
+            })
         end
-        table.sort(key_codes)
-        
-        for _, code in ipairs(key_codes) do
-            local action = self.config.key_map[code]
-            local key_name = self:getKeyName(code)
-            local action_name = self:getActionName(action)
-            table.insert(lines, string.format("  键码 %d（%s）→ %s", 
-                code, key_name, action_name))
-        end
-    else
-        table.insert(lines, "\n" .. _("按键映射：无"))
     end
-    
-    -- 摇杆映射
+
+    -- 摇杆映射列表
     if self.config.joy_map and next(self.config.joy_map) then
-        table.insert(lines, "\n" .. _("摇杆映射："))
-        local axis_codes = {}
-        for code, _ in pairs(self.config.joy_map) do
-            table.insert(axis_codes, code)
-        end
-        table.sort(axis_codes)
-        
-        for _, code in ipairs(axis_codes) do
-            local axis_map = self.config.joy_map[code]
+        local sorted_axes = {}
+        for code in pairs(self.config.joy_map) do table.insert(sorted_axes, code) end
+        table.sort(sorted_axes)
+
+        for _, axis_code in ipairs(sorted_axes) do
+            local axis_map = self.config.joy_map[axis_code]
             if axis_map then
-                for value, action in pairs(axis_map) do
-                    local action_name = self:getActionName(action)
-                    table.insert(lines, string.format("  轴 %d 值 %d → %s", 
-                        code, value, action_name))
+                local sorted_values = {}
+                for value in pairs(axis_map) do table.insert(sorted_values, value) end
+                table.sort(sorted_values)
+                for _, value in ipairs(sorted_values) do
+                    local display = self:formatMappingActions(axis_map[value])
+                    table.insert(button_rows, {
+                        {
+                            text = string.format("轴%d值%d → %s", axis_code, value, display),
+                            callback = function()
+                                UIManager:close(self.mapping_editor_dialog)
+                                self:editSingleMapping("axis", axis_code, value, function()
+                                    self:showKeyMappingEditor()
+                                end)
+                            end,
+                        },
+                    })
                 end
             end
         end
-    else
-        table.insert(lines, "\n" .. _("摇杆映射：无"))
     end
-    
-    -- 其他配置
-    table.insert(lines, "\n" .. _("其他设置："))
-    table.insert(lines, string.format(_("  设备路径：%s"), self.config.device_path or "未设置"))
-    table.insert(lines, string.format(_("  反转方向：%s"), tostring(self.config.invert_layout or false)))
-    
-    UIManager:show(InfoMessage:new{
-        text = table.concat(lines, "\n"),
-        timeout = 15
+
+    if #button_rows == 0 then
+        table.insert(button_rows, {
+            { text = _("暂无映射"), enabled = false },
+        })
+    end
+
+    -- 底部操作按钮
+    table.insert(button_rows, {
+        {
+            text = _("＋ 添加映射"),
+            callback = function()
+                UIManager:close(self.mapping_editor_dialog)
+                self:addKeyMapping(function()
+                    self:showKeyMappingEditor()
+                end)
+            end,
+        },
+        {
+            text = _("关闭"),
+            callback = function()
+                UIManager:close(self.mapping_editor_dialog)
+            end,
+        },
     })
+
+    self.mapping_editor_dialog = ButtonDialog:new{
+        title = _("按键配置（点击可编辑）"),
+        buttons = button_rows,
+    }
+    UIManager:show(self.mapping_editor_dialog)
 end
 
--- 添加新的按键映射
-function BluetoothController:addKeyMapping()
+-- =======================================================
+--  添加按键映射
+-- =======================================================
+
+function BluetoothController:addKeyMapping(on_done)
     local ButtonDialog = require("ui/widget/buttondialog")
-    
-    -- 第一步：选择映射类型
+
     local type_dialog
     type_dialog = ButtonDialog:new{
-        title = _("添加按键映射（非摇杆选择按键）"),
+        title = _("选择映射类型"),
         buttons = {
             {
                 {
                     text = _("按键"),
                     callback = function()
                         UIManager:close(type_dialog)
-                        self:addKeyMappingStep2("key")
+                        self:inputKeyCode(function(key_code)
+                            self:selectActions(
+                                string.format(_("选择动作（%s，键码 %d）"), self:getKeyName(key_code), key_code),
+                                function(selected_actions)
+                                    self:saveMappingAndApply("key", key_code, nil, nil, selected_actions, on_done)
+                                end
+                            )
+                        end)
                     end,
                 },
                 {
                     text = _("摇杆轴"),
                     callback = function()
                         UIManager:close(type_dialog)
-                        self:addKeyMappingStep2("axis")
+                        self:inputAxisCode(function(axis_code, axis_value)
+                            self:selectActions(
+                                string.format(_("选择动作（轴 %d，值 %d）"), axis_code, axis_value),
+                                function(selected_actions)
+                                    self:saveMappingAndApply("axis", nil, axis_code, axis_value, selected_actions, on_done)
+                                end
+                            )
+                        end)
                     end,
                 },
                 {
                     text = _("取消"),
                     callback = function()
                         UIManager:close(type_dialog)
+                        if on_done then on_done() end
                     end,
-                }
-            }
-        }
+                },
+            },
+        },
     }
     UIManager:show(type_dialog)
 end
 
-function BluetoothController:addKeyMappingStep2(mapping_type)
+--- 输入键码
+function BluetoothController:inputKeyCode(on_confirm)
     local InputDialog = require("ui/widget/inputdialog")
-    
-    if mapping_type == "key" then
-        -- 添加按键映射
-        local input_dialog
-        input_dialog = InputDialog:new{
-            title = _("添加按键映射"),
-            description = _("请输入键码（使用按键检测功能获取键码）："),
-            input_hint = _("例如：304"),
-            input_type = "number",
-            buttons = {
-                {
-                    {
-                        text = _("取消"),
-                        callback = function()
-                            UIManager:close(input_dialog)
-                        end,
-                    },
-                    {
-                        text = _("下一步"),
-                        is_enter_default = true,
-                        callback = function()
-                            local key_code = tonumber(input_dialog:getInputText())
-                            if key_code then
-                                UIManager:close(input_dialog)
-                                self:addKeyMappingStep3(key_code)
-                            else
-                                UIManager:show(InfoMessage:new{
-                                    text = _("请输入有效的数字键码"),
-                                    timeout = 2
-                                })
-                            end
-                        end,
-                    }
-                }
-            }
-        }
-        UIManager:show(input_dialog)
-        input_dialog:onShowKeyboard()
-    else
-        -- 添加摇杆轴映射
-        local input_dialog
-        input_dialog = InputDialog:new{
-            title = _("添加摇杆轴映射"),
-            description = _("请输入轴代码和值 (例如：0,-32767):"),
-            input_hint = _("轴代码,值"),
-            buttons = {
-                {
-                    {
-                        text = _("取消"),
-                        callback = function()
-                            UIManager:close(input_dialog)
-                        end,
-                    },
-                    {
-                        text = _("下一步"),
-                        is_enter_default = true,
-                        callback = function()
-                            local input = input_dialog:getInputText()
-                            local axis_code, axis_value = input:match("(%d+),([%-]?%d+)")
-                            
-                            if axis_code and axis_value then
-                                axis_code = tonumber(axis_code)
-                                axis_value = tonumber(axis_value)
-                                UIManager:close(input_dialog)
-                                self:addKeyMappingStep3(nil, axis_code, axis_value)
-                            else
-                                UIManager:show(InfoMessage:new{
-                                    text = _("格式错误！请使用：轴代码,值"),
-                                    timeout = 2
-                                })
-                            end
-                        end,
-                    }
-                }
-            }
-        }
-        UIManager:show(input_dialog)
-        input_dialog:onShowKeyboard()
-    end
-end
-
-function BluetoothController:addKeyMappingStep3(key_code, axis_code, axis_value)
-    local ButtonDialog = require("ui/widget/buttondialog")
-    
-    -- 可用的动作列表
-    local available_actions = self.getAvailableActions()
-    
-    local action_rows = {}
-    
-    -- 创建动作按钮
-    for i = 1, #available_actions, 2 do
-        local row = {}
-        
-        -- 第一个按钮
-        local action1 = available_actions[i]
-        table.insert(row, {
-            text = self:getActionName(action1),
-            callback = function()
-                UIManager:close(self.action_dialog)
-                self:saveNewMapping(key_code, axis_code, axis_value, action1)
-            end,
-        })
-        
-        -- 第二个按钮（如果有）
-        if available_actions[i + 1] then
-            local action2 = available_actions[i + 1]
-            table.insert(row, {
-                text = self:getActionName(action2),
-                callback = function()
-                    UIManager:close(self.action_dialog)
-                    self:saveNewMapping(key_code, axis_code, axis_value, action2)
-                end,
-            })
-        end
-        
-        table.insert(action_rows, row)
-    end
-    
-    -- 添加取消按钮
-    table.insert(action_rows, {
-        {
-            text = _("取消"),
-            callback = function()
-                UIManager:close(self.action_dialog)
-            end,
-        }
-    })
-    
-    local title
-    if key_code then
-        local key_name = self:getKeyName(key_code)
-        title = string.format(_("选择动作 (键码 %d：%s)"), key_code, key_name)
-    else
-        title = string.format(_("选择动作 (轴 %d，值 %d)"), axis_code, axis_value)
-    end
-    
-    self.action_dialog = ButtonDialog:new{
-        title = title,
-        buttons = action_rows,
-    }
-    UIManager:show(self.action_dialog)
-end
-
-function BluetoothController:saveNewMapping(key_code, axis_code, axis_value, action)
-    -- 保存新的映射
-    if key_code then
-        -- 按键映射
-        if not self.config.key_map then
-            self.config.key_map = {}
-        end
-        self.config.key_map[key_code] = action
-        
-        local key_name = self:getKeyName(key_code)
-        local action_name = self:getActionName(action)
-        
-        UIManager:show(InfoMessage:new{
-            text = string.format(_("已添加映射：\n%s (键码 %d) → %s"), 
-                key_name, key_code, action_name),
-            timeout = 3
-        })
-    else
-        -- 摇杆轴映射
-        if not self.config.joy_map then
-            self.config.joy_map = {}
-        end
-        if not self.config.joy_map[axis_code] then
-            self.config.joy_map[axis_code] = {}
-        end
-        self.config.joy_map[axis_code][axis_value] = action
-        
-        UIManager:show(InfoMessage:new{
-            text = string.format(_("已添加映射：\n轴 %d, 值 %d → %s"), 
-                axis_code, axis_value, self:getActionName(action)),
-            timeout = 3
-        })
-    end
-    
-    -- 保存设置
-    self:saveSettings()
-    
-    -- 重新加载设备以应用新映射
-    self:reloadDevice()
-end
-
--- 编辑现有映射
-function BluetoothController:editKeyMapping()
-    local ButtonDialog = require("ui/widget/buttondialog")
-    
-    local button_rows = {}
-    local has_mappings = false
-    
-    -- 添加按键映射
-    if self.config.key_map and next(self.config.key_map) then
-        has_mappings = true
-        table.insert(button_rows, {
+    local dialog
+    dialog = InputDialog:new{
+        title = _("输入键码"),
+        description = _("请输入键码（使用按键检测功能获取）："),
+        input_hint = "304",
+        input_type = "number",
+        buttons = {
             {
-                text = _("编辑按键映射"),
-                enabled = false,
-            }
-        })
-        
-        local key_codes = {}
-        for code, _ in pairs(self.config.key_map) do
-            table.insert(key_codes, code)
-        end
-        table.sort(key_codes)
-        
-        for _, code in ipairs(key_codes) do
-            local action = self.config.key_map[code]
-            local key_name = self:getKeyName(code)
-            
-            table.insert(button_rows, {
                 {
-                    text = string.format("%s → %s", key_name, self:getActionName(action)),
+                    text = _("取消"),
+                    callback = function() UIManager:close(dialog) end,
+                },
+                {
+                    text = _("确定"),
+                    is_enter_default = true,
                     callback = function()
-                        self:editSingleMapping("key", code, action)
+                        local code = tonumber(dialog:getInputText())
+                        if code then
+                            UIManager:close(dialog)
+                            on_confirm(code)
+                        else
+                            UIManager:show(InfoMessage:new{ text = _("请输入有效的数字键码"), timeout = 2 })
+                        end
                     end,
-                }
-            })
-        end
-    end
-    
-    -- 添加摇杆映射
-    if self.config.joy_map and next(self.config.joy_map) then
-        has_mappings = true
-        table.insert(button_rows, {
-            {
-                text = _("编辑摇杆映射"),
-                enabled = false,
-            }
-        })
-        
-        local axis_codes = {}
-        for code, _ in pairs(self.config.joy_map) do
-            table.insert(axis_codes, code)
-        end
-        table.sort(axis_codes)
-        
-        for _, axis_code in ipairs(axis_codes) do
-            local axis_map = self.config.joy_map[axis_code]
-            if axis_map then
-                for value, action in pairs(axis_map) do
-                    table.insert(button_rows, {
-                        {
-                            text = string.format("轴%d值%d → %s", 
-                                axis_code, value, self:getActionName(action)),
-                            callback = function()
-                                self:editSingleMapping("axis", axis_code, action, value)
-                            end,
-                        }
-                    })
-                end
-            end
-        end
-    end
-    
-    if not has_mappings then
-        UIManager:show(InfoMessage:new{
-            text = _("没有找到可编辑的映射"),
-            timeout = 2
-        })
-        return
-    end
-    
-    -- 添加取消按钮
-    table.insert(button_rows, {
-        {
-            text = _("取消"),
-            callback = function()
-                UIManager:close(self.edit_dialog)
-            end,
-        }
-    })
-    
-    self.edit_dialog = ButtonDialog:new{
-        title = _("选择要编辑的映射"),
-        buttons = button_rows,
+                },
+            },
+        },
     }
-    UIManager:show(self.edit_dialog)
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
 end
 
-function BluetoothController:editSingleMapping(mapping_type, code, current_action, value)
+--- 输入轴代码和值
+function BluetoothController:inputAxisCode(on_confirm)
+    local InputDialog = require("ui/widget/inputdialog")
+    local dialog
+    dialog = InputDialog:new{
+        title = _("输入摇杆轴"),
+        description = _("请输入轴代码和值（例如：0,-32767）："),
+        input_hint = "轴代码,值",
+        buttons = {
+            {
+                {
+                    text = _("取消"),
+                    callback = function() UIManager:close(dialog) end,
+                },
+                {
+                    text = _("确定"),
+                    is_enter_default = true,
+                    callback = function()
+                        local input = dialog:getInputText()
+                        local axis_code, axis_value = input:match("(%d+),([%-]?%d+)")
+                        if axis_code and axis_value then
+                            UIManager:close(dialog)
+                            on_confirm(tonumber(axis_code), tonumber(axis_value))
+                        else
+                            UIManager:show(InfoMessage:new{ text = _("格式错误！请使用：轴代码,值"), timeout = 2 })
+                        end
+                    end,
+                },
+            },
+        },
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
+end
+
+--- 选择一个或多个 Action（支持多选）
+function BluetoothController:selectActions(title, on_confirm)
     local ButtonDialog = require("ui/widget/buttondialog")
-    
-    local available_actions = self.getAvailableActions()
-    
-    local action_rows = {}
-    
-    -- 创建动作按钮
-    for i = 1, #available_actions, 2 do
-        local row = {}
-        
-        -- 第一个按钮
-        local action1 = available_actions[i]
-        table.insert(row, {
-            text = self:getActionName(action1),
-            callback = function()
-                UIManager:close(self.edit_action_dialog)
-                self:updateMapping(mapping_type, code, value, action1)
-            end,
-        })
-        
-        -- 第二个按钮（如果有）
-        if available_actions[i + 1] then
-            local action2 = available_actions[i + 1]
+
+    local selected = {}
+    local action_dialog
+
+    local function rebuildDialog()
+        local action_rows = {}
+
+        for i = 1, #ACTION_ID_LIST, 2 do
+            local row = {}
+            local action_id_1 = ACTION_ID_LIST[i]
+            local mark_1 = selected[action_id_1] and "✓ " or ""
             table.insert(row, {
-                text = self:getActionName(action2),
+                text = mark_1 .. ACTION_NAME_MAP[action_id_1],
                 callback = function()
-                    UIManager:close(self.edit_action_dialog)
-                    self:updateMapping(mapping_type, code, value, action2)
+                    selected[action_id_1] = not selected[action_id_1] or nil
+                    UIManager:close(action_dialog)
+                    rebuildDialog()
                 end,
             })
+
+            if ACTION_ID_LIST[i + 1] then
+                local action_id_2 = ACTION_ID_LIST[i + 1]
+                local mark_2 = selected[action_id_2] and "✓ " or ""
+                table.insert(row, {
+                    text = mark_2 .. ACTION_NAME_MAP[action_id_2],
+                    callback = function()
+                        selected[action_id_2] = not selected[action_id_2] or nil
+                        UIManager:close(action_dialog)
+                        rebuildDialog()
+                    end,
+                })
+            end
+
+            table.insert(action_rows, row)
         end
-        
-        table.insert(action_rows, row)
-    end
-    
-    -- 删除按钮
-    table.insert(action_rows, {
-        {
-            text = _("删除此映射"),
-            callback = function()
-                UIManager:close(self.edit_action_dialog)
-                self:deleteSingleMapping(mapping_type, code, value)
-            end,
+
+        -- 确认和取消按钮（分隔线 + 图标区分）
+        table.insert(action_rows, {})
+
+        table.insert(action_rows, {
+            {
+                text = "✔ " .. _("确认选择"),
+                callback = function()
+                    local result = {}
+                    for _, action_id in ipairs(ACTION_ID_LIST) do
+                        if selected[action_id] then
+                            table.insert(result, action_id)
+                        end
+                    end
+                    if #result == 0 then
+                        UIManager:show(InfoMessage:new{ text = _("请至少选择一个动作"), timeout = 2 })
+                        return
+                    end
+                    UIManager:close(action_dialog)
+                    on_confirm(result)
+                end,
+            },
+            {
+                text = "✖ " .. _("取消"),
+                callback = function() UIManager:close(action_dialog) end,
+            },
+        })
+
+        action_dialog = ButtonDialog:new{
+            title = title,
+            buttons = action_rows,
         }
-    })
-    
-    -- 取消按钮
-    table.insert(action_rows, {
-        {
-            text = _("取消"),
-            callback = function()
-                UIManager:close(self.edit_action_dialog)
-            end,
-        }
-    })
-    
-    local title
-    if mapping_type == "key" then
-        local key_name = self:getKeyName(code)
-        title = string.format(_("编辑映射：%s (当前：%s)"), 
-            key_name, self:getActionName(current_action))
-    else
-        title = string.format(_("编辑映射：轴%d值%d (当前：%s)"), 
-            code, value, self:getActionName(current_action))
+        UIManager:show(action_dialog)
     end
-    
-    self.edit_action_dialog = ButtonDialog:new{
-        title = title,
-        buttons = action_rows,
-    }
-    UIManager:show(self.edit_action_dialog)
+
+    rebuildDialog()
 end
 
-function BluetoothController:updateMapping(mapping_type, code, value, new_action)
-    -- 更新映射
+--- 保存映射并立即生效
+function BluetoothController:saveMappingAndApply(mapping_type, key_code, axis_code, axis_value, actions, on_done)
+    local store_value = #actions == 1 and actions[1] or actions
+    local display = self:formatMappingActions(store_value)
+
     if mapping_type == "key" then
-        self.config.key_map[code] = new_action
-        local key_name = self:getKeyName(code)
-        
+        if not self.config.key_map then self.config.key_map = {} end
+        self.config.key_map[key_code] = store_value
         UIManager:show(InfoMessage:new{
-            text = string.format(_("已更新映射：\n%s → %s"), 
-                key_name, self:getActionName(new_action)),
-            timeout = 3
+            text = string.format(_("已保存：%s → %s"), self:getKeyName(key_code), display),
+            timeout = 2,
         })
     else
-        self.config.joy_map[code][value] = new_action
-        
+        if not self.config.joy_map then self.config.joy_map = {} end
+        if not self.config.joy_map[axis_code] then self.config.joy_map[axis_code] = {} end
+        self.config.joy_map[axis_code][axis_value] = store_value
         UIManager:show(InfoMessage:new{
-            text = string.format(_("已更新映射：\n轴%d值%d → %s"), 
-                code, value, self:getActionName(new_action)),
-            timeout = 3
+            text = string.format(_("已保存：轴%d值%d → %s"), axis_code, axis_value, display),
+            timeout = 2,
         })
     end
-    
-    -- 保存设置
+
     self:saveSettings()
-    
-    -- 重新加载设备以应用新映射
-    self:reloadDevice()
+    logger.info(string.format("BT Plugin: Mapping saved: %s code=%s value=%s → %s",
+        mapping_type, tostring(key_code or axis_code), tostring(axis_value), display))
+    if on_done then on_done() end
 end
 
--- 删除单个映射
-function BluetoothController:deleteSingleMapping(mapping_type, code, value)
+-- =======================================================
+--  编辑单个映射（支持回调返回上级界面）
+-- =======================================================
+
+function BluetoothController:editSingleMapping(mapping_type, code, value, on_done)
+    local ButtonDialog = require("ui/widget/buttondialog")
+
+    local current_display
+    if mapping_type == "key" then
+        current_display = string.format("%s → %s", self:getKeyName(code), self:formatMappingActions(self.config.key_map[code]))
+    else
+        current_display = string.format("轴%d值%d → %s", code, value, self:formatMappingActions(self.config.joy_map[code][value]))
+    end
+
+    local edit_action_dialog
+    edit_action_dialog = ButtonDialog:new{
+        title = current_display,
+        buttons = {
+            {
+                {
+                    text = _("修改动作"),
+                    callback = function()
+                        UIManager:close(edit_action_dialog)
+                        self:selectActions(
+                            _("选择新动作"),
+                            function(selected_actions)
+                                local store_value = #selected_actions == 1 and selected_actions[1] or selected_actions
+                                if mapping_type == "key" then
+                                    self.config.key_map[code] = store_value
+                                else
+                                    self.config.joy_map[code][value] = store_value
+                                end
+                                self:saveSettings()
+                                UIManager:show(InfoMessage:new{
+                                    text = string.format(_("已更新 → %s"), self:formatMappingActions(store_value)),
+                                    timeout = 2,
+                                })
+                                if on_done then on_done() end
+                            end
+                        )
+                    end,
+                },
+            },
+            {
+                {
+                    text = _("删除映射"),
+                    callback = function()
+                        UIManager:close(edit_action_dialog)
+                        self:deleteSingleMapping(mapping_type, code, value, on_done)
+                    end,
+                },
+            },
+            {
+                {
+                    text = _("返回"),
+                    callback = function()
+                        UIManager:close(edit_action_dialog)
+                        if on_done then on_done() end
+                    end,
+                },
+            },
+        },
+    }
+    UIManager:show(edit_action_dialog)
+end
+
+function BluetoothController:deleteSingleMapping(mapping_type, code, value, on_done)
     UIManager:show(ConfirmBox:new{
         text = _("确定要删除此映射吗？"),
         ok_text = _("删除"),
@@ -1127,145 +1158,27 @@ function BluetoothController:deleteSingleMapping(mapping_type, code, value)
         ok_callback = function()
             if mapping_type == "key" then
                 self.config.key_map[code] = nil
-                local key_name = self:getKeyName(code)
-                
                 UIManager:show(InfoMessage:new{
-                    text = string.format(_("已删除映射：%s"), key_name),
-                    timeout = 3
+                    text = string.format(_("已删除：%s"), self:getKeyName(code)),
+                    timeout = 2,
                 })
             else
                 self.config.joy_map[code][value] = nil
-                -- 如果这个轴没有其他映射了，删除整个轴
                 if not next(self.config.joy_map[code]) then
                     self.config.joy_map[code] = nil
                 end
-                
                 UIManager:show(InfoMessage:new{
-                    text = string.format(_("已删除映射：轴%d值%d"), code, value),
-                    timeout = 3
+                    text = string.format(_("已删除：轴%d值%d"), code, value),
+                    timeout = 2,
                 })
             end
-            
-            -- 保存设置
             self:saveSettings()
-            
-            -- 重新加载设备
-            self:reloadDevice()
+            if on_done then on_done() end
+        end,
+        cancel_callback = function()
+            if on_done then on_done() end
         end,
     })
-end
-
--- 序列化配置用于显示
-function BluetoothController:serializeConfig()
-    local function serializeTable(val, indent)
-        indent = indent or 0
-        local str = ""
-        local spaces = string.rep("    ", indent)
-        
-        if type(val) == "table" then
-            str = str .. "{\n"
-            local keys = {}
-            for k in pairs(val) do table.insert(keys, k) end
-            table.sort(keys, function(a, b) 
-                if type(a) == "number" and type(b) == "number" then
-                    return a < b
-                else
-                    return tostring(a) < tostring(b)
-                end
-            end)
-            
-            for _, k in ipairs(keys) do
-                local v = val[k]
-                if type(k) == "number" then
-                    str = str .. spaces .. "    [" .. k .. "] = " .. serializeTable(v, indent + 1) .. ",\n"
-                else
-                    str = str .. spaces .. "    [\"" .. k .. "\"] = " .. serializeTable(v, indent + 1) .. ",\n"
-                end
-            end
-            str = str .. spaces .. "}"
-        elseif type(val) == "string" then
-            str = "\"" .. val .. "\""
-        else
-            str = tostring(val)
-        end
-        
-        return str
-    end
-    
-    local config_copy = {}
-    for k, v in pairs(self.config) do
-        config_copy[k] = v
-    end
-    
-    return serializeTable(config_copy)
-end
-
--- 辅助函数：获取可用动作
-function BluetoothController:getAvailableActions(action)
-    local available_actions = {
-        "next_page", "prev_page",
-        "fast_prev_page", "fast_next_page",
-        "next_chapter", "prev_chapter",
-        "next_bookmark", "prev_bookmark",
-        "last_bookmark",
-        "decrease_font_size", "increase_font_size",
-        "decrease_brightness", "increase_brightness",
-        "decrease_warmth", "increase_warmth",
-        "toggle_statusbar", "toggle_bookmark", "toggle_night_mode",
-        "full_refresh", "go_home",
-    }
-    
-    return available_actions
-end
-
--- 辅助函数：获取动作名称
-function BluetoothController:getActionName(action)
-    local action_names = {
-        next_page = "下一页",
-        prev_page = "上一页",
-        fast_prev_page = "上十页",
-        fast_next_page = "下十页",
-        next_chapter = "下一章",
-        prev_chapter = "上一章",
-        prev_bookmark = "上一书签",
-        next_bookmark = "下一书签",
-        last_bookmark = "最后书签",
-        increase_brightness = "增加亮度",
-        decrease_brightness = "减少亮度",
-        increase_font_size = "增加字号",
-        decrease_font_size = "减小字号",
-        increase_warmth = "增加色温",
-        decrease_warmth = "减少色温",
-        toggle_statusbar = "切换状态栏",
-        toggle_bookmark = "切换书签",
-        toggle_night_mode = "切换夜间模式",
-        full_refresh = "全刷屏幕",
-        go_home = "返回首页",
-    }
-    
-    return action_names[action] or action
-end
-
--- 辅助函数：计算总按键次数
-function BluetoothController:sumKeyPresses()
-    local total = 0
-    for _, key in ipairs(self.test_results) do
-        total = total + (key.count or 1)
-    end
-    return total
-end
-
--- 辅助函数：获取按键名称
-function BluetoothController:getKeyName(code)
-    local names = {
-        [304] = "A键", [305] = "B键", [306] = "X键", [307] = "Y键",
-        [308] = "L键", [309] = "R键", [310] = "L2键", [311] = "R2键",
-        [312] = "TL2键", [313] = "TR2键", [314] = "摇杆按下", [315] = "START键",
-        [316] = "SELECT键", [317] = "左摇杆", [318] = "右摇杆",
-        [103] = "上方向", [108] = "下方向", [105] = "左方向", [106] = "右方向",
-        [28] = "ENTER键", [1] = "ESC键", [57] = "SPACE键",
-    }
-    return names[code] or "未知键"
 end
 
 -- =======================================================
@@ -1273,58 +1186,59 @@ end
 -- =======================================================
 
 function BluetoothController:addToMainMenu(menu_items)
-    local logger = require("logger")
-    logger.dbg("蓝牙插件：正在创建菜单项")
-
     menu_items.bluetooth_controller = {
-        text = _("蓝牙翻页器"),
+        text = _("蓝牙控制器"),
         sorting_hint = "tools",
         sub_item_table = {
-            -- 1. 蓝牙开关
             {
                 text = _("蓝牙开关"),
                 keep_menu_open = true,
                 checked_func = function()
                     local now = os.time()
-                    if (now - self.last_action_time) < 2 then return self.target_state
-                    else return _G.KOBluetoothStateManager:isOn() end
+                    if (now - self.last_action_time) < 2 then
+                        return self.target_state
+                    end
+                    return _G.KOBluetoothStateManager:isOn()
                 end,
                 callback = function(touchmenu_instance)
                     touchmenu_instance:updateItems()
                     self:onToggleBluetooth()
                 end,
             },
-            -- 2. 颠倒方向
             {
-                text = _("反转方向"),
-                checked_func = function() return self.config.invert_layout end,
-                callback = function()
-                    self.config.invert_layout = not self.config.invert_layout
-                    self:saveSettings()
-                end
+                text_func = function()
+                    if not _G.KOBluetoothStateManager or not _G.KOBluetoothStateManager:isOn() then
+                        return _("已连接设备：蓝牙已关闭")
+                    end
+                    local device_name = self:getConnectedDeviceName()
+                    if not device_name then
+                        return _("已连接设备：无")
+                    end
+                    return string.format(_("已连接设备：%s"), device_name)
+                end,
+                keep_menu_open = true,
+                enabled_func = function() return false end,
+                callback = function() end,
             },
-            -- 3. 重载设备
             {
                 text = _("重载设备"),
                 callback = function()
                     self:onBluetoothReloadDevice()
-                end
+                end,
             },
-            -- 4. 按键检测
             {
                 text = _("按键检测"),
                 callback = function()
                     self:startKeyTester()
-                end
+                end,
             },
-            -- 5. 按键映射
             {
-                text = _("按键映射"),
+                text = _("按键配置"),
                 callback = function()
                     self:showKeyMappingEditor()
-                end
-            }
-        }
+                end,
+            },
+        },
     }
 end
 

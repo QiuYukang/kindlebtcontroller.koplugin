@@ -106,18 +106,18 @@ function BluetoothStateManager:_notifyListeners(new_state)
     end
 end
 
--- 可选：定时自动刷新
+-- 定时自动刷新蓝牙状态
 function BluetoothStateManager:_startAutoRefresh(interval)
+    self._auto_refresh_active = true
     UIManager:scheduleIn(interval, function()
+        if not self._auto_refresh_active then return end
         self:_updateState()
-        if self._auto_refresh_timer then
-            self:_startAutoRefresh(interval)
-        end
+        self:_startAutoRefresh(interval)
     end)
 end
 
 function BluetoothStateManager:stopAutoRefresh()
-    self._auto_refresh_timer = nil
+    self._auto_refresh_active = false
 end
 
 return BluetoothStateManager
