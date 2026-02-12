@@ -157,7 +157,7 @@ kindlebtcontroller.koplugin/
 - **Software**: KOReader
 - **Controller**: Any Bluetooth HID gamepad or remote (Classic BR/EDR Bluetooth only)
 
-> 📝 **Compatibility Note**: This plugin has been tested and verified on **Kindle 2024**, **Kindle Paperwhite 5 (KPW5)**, and **Kindle Paperwhite 6 (KPW6)**. Newer Kindle models should theoretically be supported as well.
+> 📝 **Compatibility Note**: This plugin has been tested and verified on **Kindle 2024**, **Kindle Paperwhite 11 (KPW5)**, and **Kindle Paperwhite 12 (KPW6)**. Newer Kindle models should theoretically be supported as well.
 
 ### How It Works
 
