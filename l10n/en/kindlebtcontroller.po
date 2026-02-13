@@ -310,3 +310,27 @@ msgstr "Select Action (%s, keycode %d)"
 
 msgid "选择动作（轴 %d，值 %d）"
 msgstr "Select Action (Axis %d, Value %d)"
+
+msgid "键码%d"
+msgstr "Key %d"
+
+msgid "未知"
+msgstr "Unknown"
+
+msgid "未知键"
+msgstr "Unknown Key"
+
+msgid "轴%d 值%d"
+msgstr "Axis %d Value %d"
+
+msgid "未映射"
+msgstr "Unmapped"
+
+msgid "轴%d值%d → %s"
+msgstr "Axis %d Value %d → %s"
+
+msgid "轴代码,值"
+msgstr "axis_code,value"
+
+msgid "摇杆 轴%d值%d 未配置映射"
+msgstr "Joystick axis %d value %d has no mapping"

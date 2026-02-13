@@ -97,10 +97,10 @@ local BluetoothController = WidgetContainer:extend {
 -- =======================================================
 
 function BluetoothController:init()
-    logger.info("蓝牙插件：开始初始化")
+    logger.info("BT Plugin: Initializing")
 
     if not Device:isKindle() then
-        logger.info("蓝牙插件：非Kindle设备，退出")
+        logger.info("BT Plugin: Not a Kindle device, skipping")
         return
     end
 
@@ -121,7 +121,7 @@ function BluetoothController:init()
         self:startReconnectWatcher()
     end
 
-    logger.info("蓝牙插件：初始化完成")
+    logger.info("BT Plugin: Initialization complete")
 end
 
 -- =======================================================
@@ -159,8 +159,12 @@ function BluetoothController:loadSettings()
     if not user_settings then return end
 
     -- 合并用户设置到默认配置
+    -- key_map 和 joy_map 整体替换（用户自定义后以用户的为准，避免删除的映射被默认值"复活"）
+    local replace_keys = { key_map = true, joy_map = true }
     for key, value in pairs(user_settings) do
-        if type(value) == "table" and type(self.config[key]) == "table" then
+        if replace_keys[key] then
+            self.config[key] = value
+        elseif type(value) == "table" and type(self.config[key]) == "table" then
             for sub_key, sub_value in pairs(value) do
                 self.config[key][sub_key] = sub_value
             end
@@ -187,8 +191,8 @@ function BluetoothController:saveSettings()
 
             for _, key in ipairs(keys) do
                 local key_str = type(key) == "number"
-                    and "[" .. key .. "]"
-                    or  "[\"" .. tostring(key) .. "\"]"
+                        and "[" .. key .. "]"
+                        or  "[\"" .. tostring(key) .. "\"]"
                 table.insert(parts, next_indent .. key_str .. " = " .. serialize(object[key], level + 1) .. ",\n")
             end
             table.insert(parts, indent .. "}")
@@ -475,7 +479,7 @@ function BluetoothController:handleInputEvent(ev)
 
     if actions then
         logger.info(string.format("BT Plugin: Matched ev(type=%d code=%d value=%d) → %s",
-            ev.type, ev.code, ev.value, table.concat(actions, ", ")))
+                ev.type, ev.code, ev.value, table.concat(actions, ", ")))
         for _, action_id in ipairs(actions) do
             self:executeAction(action_id)
         end
@@ -580,13 +584,13 @@ function BluetoothController:showTestDialog()
             if event.event_type == "key" then
                 label = string.format("%s（%d）", self:getKeyName(event.code), event.code)
             else
-                label = string.format("轴%d 值%d", event.code, event.value)
+                label = string.format(_("轴%d 值%d"), event.code, event.value)
             end
 
             if mapping_display then
                 label = label .. " → " .. mapping_display
             else
-                label = label .. " → 未映射"
+                label = label .. " → " .. _("未映射")
             end
 
             -- 每条记录一行：显示信息 + 编辑按钮
@@ -667,10 +671,10 @@ function BluetoothController:editTestEventMapping(event)
         end
         self:selectActions(title, function(selected_actions)
             self:saveMappingAndApply(mapping_type,
-                mapping_type == "key" and code or nil,
-                mapping_type == "axis" and code or nil,
-                value, selected_actions,
-                function() self:showTestDialog() end)
+                    mapping_type == "key" and code or nil,
+                    mapping_type == "axis" and code or nil,
+                    value, selected_actions,
+                    function() self:showTestDialog() end)
         end)
     end
 end
@@ -693,7 +697,7 @@ end
 
 function BluetoothController:handleTestModeEvent(ev)
     if ev.type == C.EV_KEY and (ev.value == 1 or ev.value == 2) then
-        local key_name = KEY_NAMES[ev.code] or "未知键"
+        local key_name = KEY_NAMES[ev.code] or _("未知键")
         logger.info(string.format("BT Plugin: Test detected key: %s (code=%d)", key_name, ev.code))
         table.insert(self.test_detected_events, {
             event_type = "key",
@@ -736,7 +740,7 @@ function BluetoothController:getActionName(action_id)
 end
 
 function BluetoothController:getKeyName(code)
-    return KEY_NAMES[code] or string.format("键码%d", code)
+    return KEY_NAMES[code] or string.format(_("键码%d"), code)
 end
 
 --- 格式化映射值用于显示（支持单个和多个 action）
@@ -750,7 +754,7 @@ function BluetoothController:formatMappingActions(value)
         end
         return table.concat(names, " + ")
     end
-    return "未知"
+    return _("未知")
 end
 
 -- =======================================================
@@ -779,7 +783,7 @@ function BluetoothController:showKeyMappingEditor()
         for code in pairs(self.config.key_map) do table.insert(sorted_codes, code) end
         table.sort(sorted_codes)
 
-        for _, code in ipairs(sorted_codes) do
+        for _i, code in ipairs(sorted_codes) do
             local display = self:formatMappingActions(self.config.key_map[code])
             table.insert(button_rows, {
                 {
@@ -801,17 +805,17 @@ function BluetoothController:showKeyMappingEditor()
         for code in pairs(self.config.joy_map) do table.insert(sorted_axes, code) end
         table.sort(sorted_axes)
 
-        for _, axis_code in ipairs(sorted_axes) do
+        for _i, axis_code in ipairs(sorted_axes) do
             local axis_map = self.config.joy_map[axis_code]
             if axis_map then
                 local sorted_values = {}
                 for value in pairs(axis_map) do table.insert(sorted_values, value) end
                 table.sort(sorted_values)
-                for _, value in ipairs(sorted_values) do
+                for _j, value in ipairs(sorted_values) do
                     local display = self:formatMappingActions(axis_map[value])
                     table.insert(button_rows, {
                         {
-                            text = string.format("轴%d值%d → %s", axis_code, value, display),
+                            text = string.format(_("轴%d值%d → %s"), axis_code, value, display),
                             callback = function()
                                 UIManager:close(self.mapping_editor_dialog)
                                 self:editSingleMapping("axis", axis_code, value, function()
@@ -875,10 +879,10 @@ function BluetoothController:addKeyMapping(on_done)
                         UIManager:close(type_dialog)
                         self:inputKeyCode(function(key_code)
                             self:selectActions(
-                                string.format(_("选择动作（%s，键码 %d）"), self:getKeyName(key_code), key_code),
-                                function(selected_actions)
-                                    self:saveMappingAndApply("key", key_code, nil, nil, selected_actions, on_done)
-                                end
+                                    string.format(_("选择动作（%s，键码 %d）"), self:getKeyName(key_code), key_code),
+                                    function(selected_actions)
+                                        self:saveMappingAndApply("key", key_code, nil, nil, selected_actions, on_done)
+                                    end
                             )
                         end)
                     end,
@@ -889,10 +893,10 @@ function BluetoothController:addKeyMapping(on_done)
                         UIManager:close(type_dialog)
                         self:inputAxisCode(function(axis_code, axis_value)
                             self:selectActions(
-                                string.format(_("选择动作（轴 %d，值 %d）"), axis_code, axis_value),
-                                function(selected_actions)
-                                    self:saveMappingAndApply("axis", nil, axis_code, axis_value, selected_actions, on_done)
-                                end
+                                    string.format(_("选择动作（轴 %d，值 %d）"), axis_code, axis_value),
+                                    function(selected_actions)
+                                        self:saveMappingAndApply("axis", nil, axis_code, axis_value, selected_actions, on_done)
+                                    end
                             )
                         end)
                     end,
@@ -952,7 +956,7 @@ function BluetoothController:inputAxisCode(on_confirm)
     dialog = InputDialog:new{
         title = _("输入摇杆轴"),
         description = _("请输入轴代码和值（例如：0,-32767）："),
-        input_hint = "轴代码,值",
+        input_hint = _("轴代码,值"),
         buttons = {
             {
                 {
@@ -1080,7 +1084,7 @@ function BluetoothController:saveMappingAndApply(mapping_type, key_code, axis_co
 
     self:saveSettings()
     logger.info(string.format("BT Plugin: Mapping saved: %s code=%s value=%s → %s",
-        mapping_type, tostring(key_code or axis_code), tostring(axis_value), display))
+            mapping_type, tostring(key_code or axis_code), tostring(axis_value), display))
     if on_done then on_done() end
 end
 
@@ -1095,7 +1099,7 @@ function BluetoothController:editSingleMapping(mapping_type, code, value, on_don
     if mapping_type == "key" then
         current_display = string.format("%s → %s", self:getKeyName(code), self:formatMappingActions(self.config.key_map[code]))
     else
-        current_display = string.format("轴%d值%d → %s", code, value, self:formatMappingActions(self.config.joy_map[code][value]))
+        current_display = string.format(_("轴%d值%d → %s"), code, value, self:formatMappingActions(self.config.joy_map[code][value]))
     end
 
     local edit_action_dialog
@@ -1108,21 +1112,21 @@ function BluetoothController:editSingleMapping(mapping_type, code, value, on_don
                     callback = function()
                         UIManager:close(edit_action_dialog)
                         self:selectActions(
-                            _("选择新动作"),
-                            function(selected_actions)
-                                local store_value = #selected_actions == 1 and selected_actions[1] or selected_actions
-                                if mapping_type == "key" then
-                                    self.config.key_map[code] = store_value
-                                else
-                                    self.config.joy_map[code][value] = store_value
+                                _("选择新动作"),
+                                function(selected_actions)
+                                    local store_value = #selected_actions == 1 and selected_actions[1] or selected_actions
+                                    if mapping_type == "key" then
+                                        self.config.key_map[code] = store_value
+                                    else
+                                        self.config.joy_map[code][value] = store_value
+                                    end
+                                    self:saveSettings()
+                                    UIManager:show(InfoMessage:new{
+                                        text = string.format(_("已更新 → %s"), self:formatMappingActions(store_value)),
+                                        timeout = 2,
+                                    })
+                                    if on_done then on_done() end
                                 end
-                                self:saveSettings()
-                                UIManager:show(InfoMessage:new{
-                                    text = string.format(_("已更新 → %s"), self:formatMappingActions(store_value)),
-                                    timeout = 2,
-                                })
-                                if on_done then on_done() end
-                            end
                         )
                     end,
                 },
@@ -1221,12 +1225,6 @@ function BluetoothController:addToMainMenu(menu_items)
                 callback = function() end,
             },
             {
-                text = _("重载设备"),
-                callback = function()
-                    self:onBluetoothReloadDevice()
-                end,
-            },
-            {
                 text = _("按键检测"),
                 callback = function()
                     self:startKeyTester()
@@ -1236,6 +1234,12 @@ function BluetoothController:addToMainMenu(menu_items)
                 text = _("按键配置"),
                 callback = function()
                     self:showKeyMappingEditor()
+                end,
+            },
+            {
+                text = _("重载设备"),
+                callback = function()
+                    self:onBluetoothReloadDevice()
                 end,
             },
         },
