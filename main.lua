@@ -68,6 +68,15 @@ local KEY_NAMES = {
     [28] = _("ENTER键"), [1] = _("ESC键"), [57] = _("SPACE键"),
 }
 
+
+-- =======================================================
+--  需要忽略的系统按键码
+-- =======================================================
+local IGNORED_KEY_CODES = {
+    [10002] = true,
+    [10001] = true,
+}
+
 -- =======================================================
 --  BluetoothController 定义
 -- =======================================================
@@ -459,6 +468,12 @@ function BluetoothController:handleInputEvent(ev)
     -- 按键检测模式：拦截所有按键和摇杆事件
     if self.testing_mode then
         self:handleTestModeEvent(ev)
+        return
+    end
+
+    -- 检查是否是需要忽略的系统按键
+    if IGNORED_KEY_CODES[ev.code] then
+        logger.info(string.format("BT Plugin: Ignored system key code: %d", ev.code))
         return
     end
 
