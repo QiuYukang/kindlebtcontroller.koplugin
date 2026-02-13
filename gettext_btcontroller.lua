@@ -131,14 +131,23 @@ doInitTranslation = function()
     local po_file = PLUGIN_DIR .. "l10n/" .. lang .. "/kindlebtcontroller.po"
     logger.info("BT Plugin i18n: trying translation file:", po_file)
 
-    if not loadPoFile(po_file) then
+    local loaded = loadPoFile(po_file)
+
+    if not loaded then
         -- Try base language (e.g., "en_US" -> "en")
         local base_lang = lang:match("^(%a+)_")
         if base_lang then
             po_file = PLUGIN_DIR .. "l10n/" .. base_lang .. "/kindlebtcontroller.po"
             logger.info("BT Plugin i18n: trying base language file:", po_file)
-            loadPoFile(po_file)
+            loaded = loadPoFile(po_file)
         end
+    end
+
+    -- Fallback to English if no translation found for the user's language
+    if not loaded and lang ~= "en" then
+        po_file = PLUGIN_DIR .. "l10n/en/kindlebtcontroller.po"
+        logger.info("BT Plugin i18n: falling back to English translation:", po_file)
+        loadPoFile(po_file)
     end
 end
 
