@@ -334,3 +334,6 @@ msgstr "axis_code,value"
 
 msgid "摇杆 轴%d值%d 未配置映射"
 msgstr "Joystick axis %d value %d has no mapping"
+
+msgid "⚠️ 蓝牙控制器配置错误！\n\n设备路径 %s 是 KOReader 已打开的系统设备「%s」（如触摸屏或电源键），而非蓝牙控制器。\n\n请修改 config.lua 中的 device_path。\n\n提示：使用 ls /dev/input 查看设备列表，蓝牙控制器通常是编号最大的 eventX。"
+msgstr "⚠️ Bluetooth Controller config error!\n\nDevice path %s is a system device \"%s\" already opened by KOReader (e.g., touchscreen or power button), not a Bluetooth controller.\n\nPlease update device_path in config.lua.\n\nTip: Run ls /dev/input to list devices. The Bluetooth controller is usually the eventX with the highest number."

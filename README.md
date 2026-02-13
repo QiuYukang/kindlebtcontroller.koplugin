@@ -39,15 +39,34 @@ A KOReader plugin that enables Bluetooth game controllers / remote controllers t
 | `push_progress` / `pull_progress` | Sync reading progress (KOSync) |
 | `sync_book_stat` | Sync reading statistics |
 
-### Prerequisites: Kindle Bluetooth Pairing
+### Installation
 
-> ⚠️ **Important**: Kindle's native system does not support connecting non-audio Bluetooth devices. Special configuration is required to connect Bluetooth keyboards or game controllers. Currently only Classic (BR/EDR) Bluetooth is supported — **BLE (Bluetooth Low Energy) is NOT supported**.
+#### Supported Devices
 
-Before using this plugin, you need to pair your Kindle with a Bluetooth controller. Since Kindle does not have a native Bluetooth pairing UI, this must be done via command line.
+This plugin has been tested and verified on the following Kindle models:
+
+| Device | Status |
+|--------|--------|
+| **Kindle 2024** | ✅ Verified |
+| **Kindle Paperwhite 11 (KPW5)** | ✅ Verified |
+| **Kindle Paperwhite 12 (KPW6)** | ✅ Verified |
+
+> 📝 Newer Kindle models with Bluetooth support should theoretically work as well.
+
+#### Requirements
+
+- **Software**: [KOReader](https://github.com/koreader/koreader) installed on your Kindle
+- **Controller**: Any Bluetooth HID gamepad or remote (Classic BR/EDR Bluetooth only, **BLE is NOT supported**)
+
+#### Prerequisites: Kindle Bluetooth Pairing
+
+> ⚠️ **Important**: Kindle's native system does not support connecting non-audio Bluetooth devices. Special configuration is required to connect Bluetooth keyboards or game controllers.
+
+Before installing this plugin, you must first pair your Kindle with a Bluetooth controller. Since Kindle does not have a native Bluetooth pairing UI, this must be done via command line.
 
 For a detailed pairing guide, see: [Kindle Bluetooth Pairing Guide (MobileRead)](https://www.mobileread.com/forums/showthread.php?t=369712)
 
-### Installation
+#### Steps
 
 1. Download the latest release from [Releases](https://github.com/qiuyukang/kindlebtcontroller.koplugin/releases)
 2. Extract and copy the `kindlebtcontroller.koplugin` directory to KOReader's plugin directory:
@@ -91,13 +110,17 @@ return {
 
 #### Finding Your Device Path
 
-The default device path is `/dev/input/event2`. If your controller uses a different path, you can find it by running:
+The default device path is `/dev/input/event2`. If your controller uses a different path, you need to identify it correctly.
+
+After your Bluetooth controller is connected, run:
 
 ```bash
 ls /dev/input
 ```
 
-Look for your Bluetooth device and note the event number.
+You will see multiple `eventX` files (where X is a number). The Bluetooth controller is **usually the one with the highest number** — it is the most recently added input device.
+
+> ⚠️ **Warning**: Do NOT configure the wrong event path! Other `eventX` files belong to the touchscreen, buttons, or other system devices. Configuring the wrong path may cause unexpected behavior (e.g., intercepting touchscreen or power button events). If unsure, try disconnecting the Bluetooth controller and running `ls /dev/input` again — the event file that disappears is the one belonging to your controller.
 
 #### Customizing Mappings
 
@@ -150,14 +173,6 @@ kindlebtcontroller.koplugin/
 ├── README.md                    # Chinese documentation
 └── README_EN.md                 # English documentation
 ```
-
-### Requirements
-
-- **Device**: Amazon Kindle (Bluetooth-capable)
-- **Software**: KOReader
-- **Controller**: Any Bluetooth HID gamepad or remote (Classic BR/EDR Bluetooth only)
-
-> 📝 **Compatibility Note**: This plugin has been tested and verified on **Kindle 2024**, **Kindle Paperwhite 11 (KPW5)**, and **Kindle Paperwhite 12 (KPW6)**. Newer Kindle models should theoretically be supported as well.
 
 ### How It Works
 

@@ -126,7 +126,9 @@ function BluetoothController:init()
     -- 第二次初始化（打开书籍时）跳过，避免与 KOReader 内部的设备管理冲突
     if not _G._bt_device_initialized then
         _G._bt_device_initialized = true
-        self:ensureConnected()
+        if self:validateDevicePath() then
+            self:ensureConnected()
+        end
         self:startReconnectWatcher()
     end
 
@@ -247,6 +249,77 @@ end
 -- =======================================================
 --  设备连接管理
 -- =======================================================
+
+--- 检测 device_path 是否指向了 Kindle 系统设备（触摸屏、电源键、手写笔等）
+--- 检测方式：
+---   1. 检查设备是否已被 KOReader 打开（opened_devices）
+---   2. 检查设备名称是否匹配已知的 Kindle 系统设备
+function BluetoothController:validateDevicePath()
+    local path = self.config.device_path
+    if not path then return true end
+
+    -- 读取设备名称，用于日志和提示
+    local device_name = self:getInputDeviceName(path)
+    logger.info(string.format("BT Plugin: Configured device_path = %s, device_name = %s",
+            path, tostring(device_name or "unknown")))
+
+    local is_system_device = false
+    local reason = ""
+
+    -- 检测 1：设备是否已被 KOReader 打开（触摸屏、电源键等在 KOReader 启动时就会被打开）
+    local input = Device.input
+    if input and input.opened_devices and input.opened_devices[path] then
+        is_system_device = true
+        reason = "already opened by KOReader"
+    end
+
+    -- 检测 2：设备名称是否匹配已知的 Kindle 系统设备
+    if not is_system_device and device_name then
+        local known_system_devices = {
+            "pt_mt",            -- Kindle 触摸屏 (multi-touch)
+            "bd71828-pwrkey",   -- Kindle 电源键
+        }
+        local lower_name = device_name:lower()
+        for _i, known_name in ipairs(known_system_devices) do
+            if lower_name == known_name then
+                is_system_device = true
+                reason = "matches known system device name"
+                break
+            end
+        end
+    end
+
+    if is_system_device then
+        local display_name = device_name or path
+        logger.warn(string.format("BT Plugin: WARNING - device_path %s is a system device (%s): %s",
+                path, reason, display_name))
+        UIManager:scheduleIn(2, function()
+            UIManager:show(InfoMessage:new{
+                text = string.format(
+                        _("⚠️ 蓝牙控制器配置错误！\n\n设备路径 %s 是 KOReader 已打开的系统设备「%s」（如触摸屏或电源键），而非蓝牙控制器。\n\n请修改 config.lua 中的 device_path。\n\n提示：使用 ls /dev/input 查看设备列表，蓝牙控制器通常是编号最大的 eventX。"),
+                        path, display_name
+                ),
+            })
+        end)
+        return false
+    end
+
+    return true
+end
+
+--- 读取输入设备的名称（通过 /sys/class/input/eventX/device/name）
+function BluetoothController:getInputDeviceName(path)
+    local event_name = path:match("(event%d+)$")
+    if not event_name then return nil end
+
+    local sys_name_path = "/sys/class/input/" .. event_name .. "/device/name"
+    local file = io.open(sys_name_path, "r")
+    if not file then return nil end
+
+    local device_name = file:read("*l")
+    file:close()
+    return device_name
+end
 
 function BluetoothController:ensureConnected()
     local input = Device.input
