@@ -35,7 +35,7 @@ local ACTION_REGISTRY = {
     { id = "increase_warmth",     name = _("增加色温"),         exec = function() UIManager:sendEvent(Event:new("IncreaseFlWarmth", 1)) end },
     { id = "decrease_warmth",     name = _("减少色温"),         exec = function() UIManager:sendEvent(Event:new("IncreaseFlWarmth", -1)) end },
     { id = "increase_font_size",  name = _("增大字号"),         exec = function() UIManager:sendEvent(Event:new("IncreaseFontSize", 1)) end },
-    { id = "decrease_font_size",  name = _("减小字号"),         exec = function() UIManager:sendEvent(Event:new("DecreaseFontSize", -1)) end },
+    { id = "decrease_font_size",  name = _("减小字号"),         exec = function() UIManager:sendEvent(Event:new("DecreaseFontSize", 1)) end },
     { id = "toggle_statusbar",    name = _("显示/隐藏状态栏"),  exec = function() UIManager:sendEvent(Event:new("ToggleFooterMode")) end },
     { id = "toggle_bookmark",     name = _("添加/取消书签"),    exec = function() UIManager:sendEvent(Event:new("ToggleBookmark")) end },
     { id = "toggle_night_mode",   name = _("切换夜间模式"),     exec = function() UIManager:sendEvent(Event:new("ToggleNightMode")) end },
