@@ -1,0 +1,92 @@
+name: Release on _meta.lua version change (main)
+permissions:
+  contents: write
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '_meta.lua'
+  workflow_dispatch:
+
+jobs:
+  package-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Extract current version from _meta.lua
+        id: get_version
+        run: |
+          if [ ! -f "_meta.lua" ]; then
+            echo "_meta.lua not found"
+            exit 1
+          fi
+          CURRENT=$(grep -m1 -oP "version\s*=\s*['\"]\Kv[0-9]+(\.[0-9]+)*" _meta.lua || true)
+          if [ -z "$CURRENT" ]; then
+            echo "Could not find version in _meta.lua (expected vX.Y.Z)"
+            exit 1
+          fi
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+
+      - name: Get previous commit's version (if any)
+        id: get_prev
+        run: |
+          PREV=""
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            PREV=$(git show HEAD^:_meta.lua 2>/dev/null | grep -m1 -oP "version\s*=\s*['\"]\Kv[0-9]+(\.[0-9]+)*" || true)
+          fi
+          echo "prev_version=$PREV" >> $GITHUB_OUTPUT
+
+      - name: Compare versions and exit if unchanged
+        run: |
+          CUR=${{ steps.get_version.outputs.version }}
+          PREV=${{ steps.get_prev.outputs.prev_version }}
+          echo "current: $CUR"
+          echo "previous: $PREV"
+          if [ "$CUR" = "$PREV" ]; then
+            echo "Version not changed -> nothing to do"
+            exit 0
+          fi
+          echo "Version changed -> continue"
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          TAG=${{ steps.get_version.outputs.version }}
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "refs/tags/$TAG"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create and push tag (if missing)
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          TAG=${{ steps.get_version.outputs.version }}
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "release $TAG"
+          git push origin "$TAG"
+
+      - name: Create package (.koplugin)
+        run: |
+          mkdir -p dist
+          ARCHIVE=dist/kindlebtcontroller.koplugin.zip
+          zip -r "$ARCHIVE" . -x ".git/*" ".gitignore" "screenshots/*" ".github/*" "dist/*"
+          ls -lh dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: ${{ steps.get_version.outputs.version }}
+          body: Auto release version ${{ steps.get_version.outputs.version }}
+          files: dist/kindlebtcontroller.koplugin.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
