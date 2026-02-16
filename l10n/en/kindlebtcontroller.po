@@ -282,7 +282,16 @@ msgid "修改动作"
 msgstr "Edit Action"
 
 msgid "选择新动作"
-msgstr "Select New Actions"
+msgstr "Select New Action"
+
+msgid "切换单选"
+msgstr "Single Select"
+
+msgid "切换多选"
+msgstr "Multi Select"
+
+msgid "（多选模式）"
+msgstr " (Multi-select)"
 
 msgid "已更新 → %s"
 msgstr "Updated → %s"

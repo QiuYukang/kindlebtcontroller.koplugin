@@ -29,6 +29,7 @@ local ACTION_REGISTRY = {
     { id = "prev_chapter",        name = _("上一章"),           exec = function() UIManager:sendEvent(Event:new("GotoPrevChapter")) end },
     { id = "next_bookmark",       name = _("下一书签"),         exec = function() UIManager:sendEvent(Event:new("GotoNextBookmarkFromPage")) end },
     { id = "prev_bookmark",       name = _("上一书签"),         exec = function() UIManager:sendEvent(Event:new("GotoPreviousBookmarkFromPage")) end },
+    { id = "go_back",             name = _("返回"),             exec = function() UIManager:sendEvent(Event:new("Back")) end },
     { id = "last_bookmark",       name = _("最后书签"),         exec = function() UIManager:sendEvent(Event:new("GoToLatestBookmark")) end },
     { id = "increase_brightness", name = _("增加亮度"),         exec = function() UIManager:sendEvent(Event:new("IncreaseFlIntensity", 1)) end },
     { id = "decrease_brightness", name = _("减少亮度"),         exec = function() UIManager:sendEvent(Event:new("DecreaseFlIntensity", 1)) end },
@@ -844,45 +845,29 @@ end
 --  按键映射编辑器（统一查看/编辑/添加界面）
 -- =======================================================
 
-function BluetoothController:showKeyMappingEditor()
+function BluetoothController:showKeyMappingEditor(page)
     local ButtonDialog = require("ui/widget/buttondialog")
+
+    local ITEMS_PER_PAGE = 8  -- 每页显示的映射条目数
 
     if self.mapping_editor_dialog then
         UIManager:close(self.mapping_editor_dialog)
         self.mapping_editor_dialog = nil
     end
 
-    local button_rows = {}
+    -- 收集所有映射条目
+    local all_items = {}
 
-    -- 设备路径（显示在最上方，不可点击）
-    local device_path = self.config.device_path or _("未设置")
-    table.insert(button_rows, {
-        { text = string.format(_("设备路径：%s"), device_path), enabled = false },
-    })
-
-    -- 按键映射列表
     if self.config.key_map and next(self.config.key_map) then
         local sorted_codes = {}
         for code in pairs(self.config.key_map) do table.insert(sorted_codes, code) end
         table.sort(sorted_codes)
 
         for _i, code in ipairs(sorted_codes) do
-            local display = self:formatMappingActions(self.config.key_map[code])
-            table.insert(button_rows, {
-                {
-                    text = string.format("%s → %s", self:getKeyName(code), display),
-                    callback = function()
-                        UIManager:close(self.mapping_editor_dialog)
-                        self:editSingleMapping("key", code, nil, function()
-                            self:showKeyMappingEditor()
-                        end)
-                    end,
-                },
-            })
+            table.insert(all_items, { type = "key", code = code })
         end
     end
 
-    -- 摇杆映射列表
     if self.config.joy_map and next(self.config.joy_map) then
         local sorted_axes = {}
         for code in pairs(self.config.joy_map) do table.insert(sorted_axes, code) end
@@ -895,27 +880,89 @@ function BluetoothController:showKeyMappingEditor()
                 for value in pairs(axis_map) do table.insert(sorted_values, value) end
                 table.sort(sorted_values)
                 for _j, value in ipairs(sorted_values) do
-                    local display = self:formatMappingActions(axis_map[value])
-                    table.insert(button_rows, {
-                        {
-                            text = string.format(_("轴%d值%d → %s"), axis_code, value, display),
-                            callback = function()
-                                UIManager:close(self.mapping_editor_dialog)
-                                self:editSingleMapping("axis", axis_code, value, function()
-                                    self:showKeyMappingEditor()
-                                end)
-                            end,
-                        },
-                    })
+                    table.insert(all_items, { type = "axis", code = axis_code, value = value })
                 end
             end
         end
     end
 
-    if #button_rows == 0 then
+    local total_pages = math.max(1, math.ceil(#all_items / ITEMS_PER_PAGE))
+    local current_page = math.min(page or 1, total_pages)
+
+    local button_rows = {}
+
+    -- 设备路径（显示在最上方，不可点击）
+    local device_path = self.config.device_path or _("未设置")
+    table.insert(button_rows, {
+        { text = string.format(_("设备路径：%s"), device_path), enabled = false },
+    })
+
+    if #all_items == 0 then
         table.insert(button_rows, {
             { text = _("暂无映射"), enabled = false },
         })
+    else
+        -- 当前页的映射条目
+        local start_idx = (current_page - 1) * ITEMS_PER_PAGE + 1
+        local end_idx = math.min(current_page * ITEMS_PER_PAGE, #all_items)
+
+        for idx = start_idx, end_idx do
+            local item = all_items[idx]
+            if item.type == "key" then
+                local display = self:formatMappingActions(self.config.key_map[item.code])
+                local captured_code = item.code
+                table.insert(button_rows, {
+                    {
+                        text = string.format("%s → %s", self:getKeyName(captured_code), display),
+                        callback = function()
+                            UIManager:close(self.mapping_editor_dialog)
+                            self:editSingleMapping("key", captured_code, nil, function()
+                                self:showKeyMappingEditor(current_page)
+                            end)
+                        end,
+                    },
+                })
+            else
+                local display = self:formatMappingActions(self.config.joy_map[item.code][item.value])
+                local captured_code = item.code
+                local captured_value = item.value
+                table.insert(button_rows, {
+                    {
+                        text = string.format(_("轴%d值%d → %s"), captured_code, captured_value, display),
+                        callback = function()
+                            UIManager:close(self.mapping_editor_dialog)
+                            self:editSingleMapping("axis", captured_code, captured_value, function()
+                                self:showKeyMappingEditor(current_page)
+                            end)
+                        end,
+                    },
+                })
+            end
+        end
+
+        -- 翻页按钮（仅在多页时显示）
+        if total_pages > 1 then
+            table.insert(button_rows, {
+                {
+                    text = "◀",
+                    enabled = current_page > 1,
+                    callback = function()
+                        self:showKeyMappingEditor(current_page - 1)
+                    end,
+                },
+                {
+                    text = string.format("%d / %d", current_page, total_pages),
+                    enabled = false,
+                },
+                {
+                    text = "▶",
+                    enabled = current_page < total_pages,
+                    callback = function()
+                        self:showKeyMappingEditor(current_page + 1)
+                    end,
+                },
+            })
+        end
     end
 
     -- 底部操作按钮
@@ -925,7 +972,7 @@ function BluetoothController:showKeyMappingEditor()
             callback = function()
                 UIManager:close(self.mapping_editor_dialog)
                 self:addKeyMapping(function()
-                    self:showKeyMappingEditor()
+                    self:showKeyMappingEditor(current_page)
                 end)
             end,
         },
@@ -1067,49 +1114,120 @@ function BluetoothController:inputAxisCode(on_confirm)
     dialog:onShowKeyboard()
 end
 
---- 选择一个或多个 Action（支持多选）
-function BluetoothController:selectActions(title, on_confirm)
+--- 选择动作（默认单选，可切换多选，分页显示）
+--- @param title string 对话框标题
+--- @param on_confirm function 确认回调，参数为选中的 action id 列表
+--- @param current_actions table|string|nil 当前已配置的映射（用于回显预选状态）
+function BluetoothController:selectActions(title, on_confirm, current_actions)
     local ButtonDialog = require("ui/widget/buttondialog")
 
+    local ROWS_PER_PAGE = 8  -- 每页显示的动作行数（每行 2 个动作）
+
+    -- 根据当前映射初始化预选状态
     local selected = {}
+    local multi_select = false
+    if current_actions then
+        if type(current_actions) == "string" then
+            selected[current_actions] = true
+        elseif type(current_actions) == "table" then
+            for _, action_id in ipairs(current_actions) do
+                selected[action_id] = true
+            end
+            if #current_actions > 1 then
+                multi_select = true
+            end
+        end
+    end
+
+    -- 构建动作行列表（每行 2 个动作），用于分页
+    local all_action_rows = {}
+    for i = 1, #ACTION_ID_LIST, 2 do
+        table.insert(all_action_rows, { ACTION_ID_LIST[i], ACTION_ID_LIST[i + 1] })
+    end
+
+    local total_pages = math.ceil(#all_action_rows / ROWS_PER_PAGE)
+    local current_page = 1
     local action_dialog
 
     local function rebuildDialog()
-        local action_rows = {}
+        local button_rows = {}
 
-        for i = 1, #ACTION_ID_LIST, 2 do
+        -- 当前页的动作行
+        local start_row = (current_page - 1) * ROWS_PER_PAGE + 1
+        local end_row = math.min(current_page * ROWS_PER_PAGE, #all_action_rows)
+
+        for row_idx = start_row, end_row do
+            local action_pair = all_action_rows[row_idx]
             local row = {}
-            local action_id_1 = ACTION_ID_LIST[i]
+
+            local action_id_1 = action_pair[1]
             local mark_1 = selected[action_id_1] and "✓ " or ""
             table.insert(row, {
                 text = mark_1 .. ACTION_NAME_MAP[action_id_1],
                 callback = function()
-                    selected[action_id_1] = not selected[action_id_1] or nil
+                    if multi_select then
+                        selected[action_id_1] = not selected[action_id_1] or nil
+                    else
+                        selected = { [action_id_1] = true }
+                    end
                     UIManager:close(action_dialog)
                     rebuildDialog()
                 end,
             })
 
-            if ACTION_ID_LIST[i + 1] then
-                local action_id_2 = ACTION_ID_LIST[i + 1]
+            if action_pair[2] then
+                local action_id_2 = action_pair[2]
                 local mark_2 = selected[action_id_2] and "✓ " or ""
                 table.insert(row, {
                     text = mark_2 .. ACTION_NAME_MAP[action_id_2],
                     callback = function()
-                        selected[action_id_2] = not selected[action_id_2] or nil
+                        if multi_select then
+                            selected[action_id_2] = not selected[action_id_2] or nil
+                        else
+                            selected = { [action_id_2] = true }
+                        end
                         UIManager:close(action_dialog)
                         rebuildDialog()
                     end,
                 })
             end
 
-            table.insert(action_rows, row)
+            table.insert(button_rows, row)
         end
 
-        -- 确认和取消按钮（分隔线 + 图标区分）
-        table.insert(action_rows, {})
+        -- 分隔线
+        table.insert(button_rows, {})
 
-        table.insert(action_rows, {
+        -- 翻页按钮（仅在多页时显示）
+        if total_pages > 1 then
+            table.insert(button_rows, {
+                {
+                    text = "◀",
+                    enabled = current_page > 1,
+                    callback = function()
+                        current_page = current_page - 1
+                        UIManager:close(action_dialog)
+                        rebuildDialog()
+                    end,
+                },
+                {
+                    text = string.format("%d / %d", current_page, total_pages),
+                    enabled = false,
+                },
+                {
+                    text = "▶",
+                    enabled = current_page < total_pages,
+                    callback = function()
+                        current_page = current_page + 1
+                        UIManager:close(action_dialog)
+                        rebuildDialog()
+                    end,
+                },
+            })
+        end
+
+        -- 确认 + 切换单选/多选
+        table.insert(button_rows, {
             {
                 text = "✔ " .. _("确认选择"),
                 callback = function()
@@ -1128,14 +1246,33 @@ function BluetoothController:selectActions(title, on_confirm)
                 end,
             },
             {
-                text = "✖ " .. _("取消"),
-                callback = function() UIManager:close(action_dialog) end,
+                text = multi_select and _("切换单选") or _("切换多选"),
+                callback = function()
+                    multi_select = not multi_select
+                    if not multi_select then
+                        local first_selected = nil
+                        for _, action_id in ipairs(ACTION_ID_LIST) do
+                            if selected[action_id] then
+                                first_selected = action_id
+                                break
+                            end
+                        end
+                        selected = first_selected and { [first_selected] = true } or {}
+                    end
+                    UIManager:close(action_dialog)
+                    rebuildDialog()
+                end,
             },
         })
 
+        local display_title = title
+        if multi_select then
+            display_title = title .. _("（多选模式）")
+        end
+
         action_dialog = ButtonDialog:new{
-            title = title,
-            buttons = action_rows,
+            title = display_title,
+            buttons = button_rows,
         }
         UIManager:show(action_dialog)
     end
@@ -1194,6 +1331,9 @@ function BluetoothController:editSingleMapping(mapping_type, code, value, on_don
                     text = _("修改动作"),
                     callback = function()
                         UIManager:close(edit_action_dialog)
+                        local current_value = mapping_type == "key"
+                                and self.config.key_map[code]
+                                or self.config.joy_map[code][value]
                         self:selectActions(
                                 _("选择新动作"),
                                 function(selected_actions)
@@ -1209,7 +1349,8 @@ function BluetoothController:editSingleMapping(mapping_type, code, value, on_don
                                         timeout = 2,
                                     })
                                     if on_done then on_done() end
-                                end
+                                end,
+                                current_value
                         )
                     end,
                 },
