@@ -69,13 +69,8 @@ local KEY_NAMES = {
 }
 
 
--- =======================================================
---  需要忽略的系统按键码
--- =======================================================
-local IGNORED_KEY_CODES = {
-    [10002] = true,
-    [10001] = true,
-}
+-- Kindle 系统合成事件的按键码阈值（>= 此值的按键码均为系统内部事件，非物理按键）
+local SYSTEM_KEY_CODE_THRESHOLD = 10000
 
 -- =======================================================
 --  BluetoothController 定义
@@ -548,9 +543,9 @@ function BluetoothController:handleInputEvent(ev)
         return
     end
 
-    -- 检查是否是需要忽略的系统按键
-    if IGNORED_KEY_CODES[ev.code] then
-        logger.info(string.format("BT Plugin: Ignored system key code: %d", ev.code))
+    -- 忽略 Kindle 系统合成事件（按键码 >= 10000 均为系统内部事件）
+    if ev.code >= SYSTEM_KEY_CODE_THRESHOLD then
+        logger.info(string.format("BT Plugin: Ignored system evt: key=%d value=%d type=%d", ev.code, ev.value, ev.type))
         return
     end
 
