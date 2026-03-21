@@ -159,7 +159,7 @@ vi /usr/bin/dmcc.sh
 
 <img src="screenshots/dmcc.png">
 
-#### Steps
+### Install
 
 1. Download the latest release from [Releases](https://github.com/qiuyukang/kindlebtcontroller.koplugin/releases)
 2. Extract and copy the `kindlebtcontroller.koplugin` directory to KOReader's plugin directory:

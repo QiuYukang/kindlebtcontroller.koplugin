@@ -153,7 +153,7 @@ vi /usr/bin/dmcc.sh
 ```
 <img src="screenshots/dmcc.png">
 
-#### 安装步骤
+### 安装步骤
 
 1. 从 [Releases](https://github.com/qiuyukang/kindlebtcontroller.koplugin/releases) 下载最新版本的压缩包
 2. 解压后将 `kindlebtcontroller.koplugin` 目录复制到 KOReader 插件目录：
