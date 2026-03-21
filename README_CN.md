@@ -62,9 +62,96 @@
 
 > ⚠️ **重要提示**：Kindle 原生系统不支持连接非音频蓝牙设备，需要进行特殊配置后才可以连接蓝牙键盘或手柄。
 
-在安装本插件之前，需要先让 Kindle 与蓝牙控制器完成配对。Kindle 原生系统没有蓝牙配对界面，需要通过命令行操作。
+在安装本插件之前，需要先让 Kindle 与蓝牙控制器完成配对。Kindle 原生系统默认不支持配对非音频设备，需要通过命令行操作。
 
-详细的蓝牙配对教程请参考：[Kindle Bluetooth Pairing Guide (MobileRead)](https://www.mobileread.com/forums/showthread.php?t=369712)
+参考：[Kindle Bluetooth Pairing Guide (MobileRead)](https://www.mobileread.com/forums/showthread.php?t=369712)
+
+##### 修改蓝牙检测规则
+```shell
+# ssh 连接成功后切换到可读写模式
+mntroot rw
+mkdir -p /usr/local/bin && cd /usr/local/bin
+```
+
+先打开文件进行编辑：
+
+```shell
+vi /usr/local/bin/dev_is_keyboard.sh
+```
+
+然后粘贴以下内容：
+
+```sh
+#!/bin/sh
+DEVICE=$1
+if evtest info $DEVICE | grep -q 'Event type 1 (Key)'; then
+  if evtest info $DEVICE | grep -q 'Event code 16 (Q)'; then
+    # Don't set these just because Key is supported -- that will
+    # detect the touchscreen as a keyboard which breaks the UI
+    echo ID_INPUT=1
+    echo ID_INPUT_KEY=1
+    echo ID_INPUT_KEYBOARD=1
+  fi
+fi
+```
+
+保存后为脚本添加执行权限：
+
+```shell
+chmod +x dev_is_keyboard.sh
+```
+
+先打开规则文件进行编辑：
+
+```shell
+vi /etc/udev/rules.d/99-bt-keyboard.rules
+```
+
+然后粘贴以下内容：
+
+```sh
+KERNEL=="uhid", MODE="0660", GROUP="bluetooth"
+ACTION=="add", SUBSYSTEM=="input", IMPORT+="/usr/local/bin/dev_is_keyboard.sh %N"
+```
+
+然后重新加载规则：
+
+```shell
+cd /etc/udev/rules.d/
+udevadm control --reload-rules && udevadm trigger
+```
+
+##### 蓝牙配对
+输入`ace_bt_cli`进入蓝牙工具箱, 输入`radiostate`查看蓝牙启动状态, 如果显示`ACEBTCLI getRadioState() state:1 status:0`说明蓝牙已经启用, 可以直接开始配对, 如果显示`ACEBTCLI getRadioState() state:0 status:0`则需要输入`enable`启用蓝牙
+
+<img src="screenshots/ace_bt_cli_enable.png">
+
+使用`pair {bt_addr}`进行配对(不支持 BLE 蓝牙设备):
+
+<img src="screenshots/ace_bt_cli_pair.png">
+
+
+
+输入`Enter`后使用`connectedlist`查看配对列表:
+
+<img src="screenshots/ace_bt_cli_connectedlist.png">
+
+
+
+新开一个命令行终端, `ls /dev/input/`查看蓝牙设备路径(通常是最后一个eventX), 执行`eventest {dev_path}`命令后,安下蓝牙设备的按键, 查看按键事件是否正常输出
+
+<img src="screenshots/eventest.png">
+
+##### 禁用日志
+非音频蓝牙设备连接断开后会在磁盘上生成很多无效日志文件, 需要禁止这个动作:
+```shell
+cd /mnt/us/ && touch DISABLE_CORE_DUMP && touch DISABLE_CORE_DUMP_ALERT
+```
+反转 CoreDump 标志(去掉第一行`if`后面的`!`)
+```shell
+vi /usr/bin/dmcc.sh
+```
+<img src="screenshots/dmcc.png">
 
 #### 安装步骤
 

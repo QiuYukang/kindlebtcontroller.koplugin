@@ -557,7 +557,7 @@ function BluetoothController:isSystemKeyEvent(ev)
 end
 
 function BluetoothController:handleInputEvent(ev)
-    logger.info(string.format("BT Plugin: Received ev(type=%d code=%d value=%d)", ev.type, ev.code, ev.value))
+    logger.dbg(string.format("BT Plugin: Received ev(type=%d code=%d value=%d)", ev.type, ev.code, ev.value))
 
     -- 蓝牙控制器未连接时，不处理任何事件，避免拦截触摸屏/电源键等系统设备的输入
     if not _G._bt_was_connected then return end

@@ -5,6 +5,11 @@ return {
 
     -- 默认按键映射
     key_map = {
+        [103] = "pre_page",
+        [105] = "pre_page",
+        [108] = "next_page",
+        [106] = "next_page",
+        [28] = "next_page",
         [304] = "next_page",
         [305] = "next_page",
         [306] = "prev_page",
