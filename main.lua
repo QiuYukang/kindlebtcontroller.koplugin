@@ -102,7 +102,9 @@ local BluetoothController = WidgetContainer:extend {
 -- =======================================================
 
 function BluetoothController:init()
-    logger.info("BT Plugin: Initializing")
+    -- 使用 dofile 加载插件自身的 _meta.lua，避免 require 缓存返回其他插件的元信息
+    local meta = dofile(self.path .. "/_meta.lua")
+    logger.info("BT Plugin: Initializing " .. (meta and meta.version or "unknown"))
 
     if not Device:isKindle() then
         logger.info("BT Plugin: Not a Kindle device, skipping")
@@ -274,6 +276,7 @@ function BluetoothController:validateDevicePath()
         local known_system_devices = {
             "pt_mt",            -- Kindle 触摸屏 (multi-touch)
             "bd71828-pwrkey",   -- Kindle 电源键
+            "goodix-ts",   -- Kindle 触摸屏 (multi-touch)
         }
         local lower_name = device_name:lower()
         for _i, known_name in ipairs(known_system_devices) do
@@ -338,6 +341,7 @@ function BluetoothController:ensureConnected()
     if not ok then
         logger.warn("BT Plugin: Failed to open -> " .. tostring(err))
     end
+    if ok then _G._bt_was_connected = true end
     return ok
 end
 
@@ -356,6 +360,7 @@ function BluetoothController:reloadDevice()
 
     -- 重新注册输入钩子，确保 close/open 后钩子仍然有效
     if ok then
+        _G._bt_was_connected = true
         self:registerInputHook()
     end
 
@@ -537,22 +542,43 @@ end
 --  输入事件处理
 -- =======================================================
 
+--- 判断事件是否来自系统设备（系统合成事件或 KOReader 已注册的系统按键）
+--- 用于 handleInputEvent 和 handleTestModeEvent 的公共过滤逻辑
+function BluetoothController:isSystemKeyEvent(ev)
+    -- Kindle 系统合成事件（按键码 >= 10000 均为系统内部事件）
+    if ev.code >= SYSTEM_KEY_CODE_THRESHOLD then
+        return true
+    end
+    -- KOReader 已注册的系统按键（翻页键、电源键、Home 键等）
+    if ev.type == C.EV_KEY and Device.input.event_map[ev.code] then
+        return true
+    end
+    return false
+end
+
 function BluetoothController:handleInputEvent(ev)
+    logger.dbg(string.format("BT Plugin: Received ev(type=%d code=%d value=%d)", ev.type, ev.code, ev.value))
+
+    -- 蓝牙控制器未连接时，不处理任何事件，避免拦截触摸屏/电源键等系统设备的输入
+    if not _G._bt_was_connected then return end
+
     -- 按键检测模式：拦截所有按键和摇杆事件
     if self.testing_mode then
         self:handleTestModeEvent(ev)
         return
     end
 
-    -- 忽略 Kindle 系统合成事件（按键码 >= 10000 均为系统内部事件）
-    if ev.code >= SYSTEM_KEY_CODE_THRESHOLD then
-        logger.info(string.format("BT Plugin: Ignored system evt: key=%d value=%d type=%d", ev.code, ev.value, ev.type))
+    -- 忽略系统设备事件
+    if self:isSystemKeyEvent(ev) then return end
+
+    -- 忽略按键重复事件（ev.value == 2），蓝牙手柄的长按重复通常不是用户期望的行为
+    if ev.type == C.EV_KEY and ev.value == 2 then
         return
     end
 
     local actions = nil
 
-    if ev.type == C.EV_KEY and (ev.value == 1 or ev.value == 2) then
+    if ev.type == C.EV_KEY and ev.value == 1 then
         actions = self:resolveActions(self.config.key_map, ev.code)
     elseif ev.type == C.EV_ABS and ev.value ~= 0 and not self:isTouchscreenAbsEvent(ev.code) then
         local axis_map = self.config.joy_map and self.config.joy_map[ev.code]
@@ -569,19 +595,7 @@ function BluetoothController:handleInputEvent(ev)
         end
         ev.type = -1
     else
-        -- 未匹配映射的按键/摇杆事件，弹出提示
-        if ev.type == C.EV_KEY and (ev.value == 1 or ev.value == 2) then
-            local key_name = self:getKeyName(ev.code)
-            UIManager:show(InfoMessage:new{
-                text = string.format(_("按键 %s（%d）未配置映射"), key_name, ev.code),
-                timeout = 1,
-            })
-        elseif ev.type == C.EV_ABS and ev.value ~= 0 and not self:isTouchscreenAbsEvent(ev.code) then
-            UIManager:show(InfoMessage:new{
-                text = string.format(_("摇杆 轴%d值%d 未配置映射"), ev.code, ev.value),
-                timeout = 1,
-            })
-        end
+        logger.info(string.format("BT Plugin: Unmatched ev(type=%d code=%d value=%d)", ev.type, ev.code, ev.value))
     end
 end
 
@@ -651,7 +665,10 @@ function BluetoothController:showTestDialog()
     local ButtonDialog = require("ui/widget/buttondialog")
 
     if self.test_dialog then
+        -- 标记为内部刷新关闭，避免 dismiss_callback 误触发 stopKeyTester
+        self.test_dialog_refreshing = true
         UIManager:close(self.test_dialog)
+        self.test_dialog_refreshing = false
         self.test_dialog = nil
     end
 
@@ -715,6 +732,14 @@ function BluetoothController:showTestDialog()
     self.test_dialog = ButtonDialog:new{
         title = title,
         buttons = button_rows,
+        tap_close_callback = function()
+            -- 仅在用户点击弹框外部关闭时退出检测，刷新时不触发
+            if self.test_dialog_refreshing then return end
+            self.test_dialog = nil
+            if self.testing_mode then
+                self:stopKeyTester()
+            end
+        end,
     }
     UIManager:show(self.test_dialog)
     self.test_refresh_pending = false
@@ -780,6 +805,9 @@ function BluetoothController:requestTestDialogRefresh()
 end
 
 function BluetoothController:handleTestModeEvent(ev)
+    -- 忽略系统设备事件
+    if self:isSystemKeyEvent(ev) then return end
+
     if ev.type == C.EV_KEY and (ev.value == 1 or ev.value == 2) then
         local key_name = KEY_NAMES[ev.code] or _("未知键")
         logger.info(string.format("BT Plugin: Test detected key: %s (code=%d)", key_name, ev.code))

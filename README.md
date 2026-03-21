@@ -62,11 +62,104 @@ This plugin has been tested and verified on the following Kindle models:
 
 > ⚠️ **Important**: Kindle's native system does not support connecting non-audio Bluetooth devices. Special configuration is required to connect Bluetooth keyboards or game controllers.
 
-Before installing this plugin, you must first pair your Kindle with a Bluetooth controller. Since Kindle does not have a native Bluetooth pairing UI, this must be done via command line.
+Before installing this plugin, you must first pair your Kindle with a Bluetooth controller. By default, the Kindle system does not allow pairing with non-audio Bluetooth devices, so the setup must be completed from the command line.
 
-For a detailed pairing guide, see: [Kindle Bluetooth Pairing Guide (MobileRead)](https://www.mobileread.com/forums/showthread.php?t=369712)
+Reference: [Kindle Bluetooth Pairing Guide (MobileRead)](https://www.mobileread.com/forums/showthread.php?t=369712)
 
-#### Steps
+##### Update the Bluetooth Detection Rules
+
+```shell
+# After connecting over SSH, switch the system partition to read-write mode.
+mntroot rw
+mkdir -p /usr/local/bin && cd /usr/local/bin
+```
+
+Open the file for editing:
+
+```shell
+vi /usr/local/bin/dev_is_keyboard.sh
+```
+
+Then paste in the following contents:
+
+```sh
+#!/bin/sh
+DEVICE=$1
+if evtest info $DEVICE | grep -q 'Event type 1 (Key)'; then
+  if evtest info $DEVICE | grep -q 'Event code 16 (Q)'; then
+    # Don't set these just because Key is supported -- that will
+    # detect the touchscreen as a keyboard which breaks the UI
+    echo ID_INPUT=1
+    echo ID_INPUT_KEY=1
+    echo ID_INPUT_KEYBOARD=1
+  fi
+fi
+```
+
+Then save the file and make it executable:
+
+```shell
+chmod +x dev_is_keyboard.sh
+```
+
+Open the rule file for editing:
+
+```shell
+vi /etc/udev/rules.d/99-bt-keyboard.rules
+```
+
+Then paste in the following contents:
+
+```sh
+KERNEL=="uhid", MODE="0660", GROUP="bluetooth"
+ACTION=="add", SUBSYSTEM=="input", IMPORT+="/usr/local/bin/dev_is_keyboard.sh %N"
+```
+
+Then reload the udev rules:
+
+```shell
+cd /etc/udev/rules.d/
+udevadm control --reload-rules && udevadm trigger
+```
+
+##### Pair the Bluetooth Device
+
+Run `ace_bt_cli` to open the Bluetooth toolbox. Then run `radiostate` to check whether Bluetooth is enabled:
+
+- If the output is `ACEBTCLI getRadioState() state:1 status:0`, Bluetooth is already enabled and you can start pairing.
+- If the output is `ACEBTCLI getRadioState() state:0 status:0`, run `enable` first.
+
+<img src="screenshots/ace_bt_cli_enable.png">
+
+Use `pair {bt_addr}` to pair the device. BLE devices are not supported:
+
+<img src="screenshots/ace_bt_cli_pair.png">
+
+After pressing `Enter`, run `connectedlist` to confirm that the pairing entry appears in the list:
+
+<img src="screenshots/ace_bt_cli_connectedlist.png">
+
+Open another terminal session and run `ls /dev/input/` to locate the Bluetooth input device path. In most cases, it is the last `eventX` device. Then run `evtest {dev_path}` and press buttons on the controller to confirm that input events are reported correctly.
+
+<img src="screenshots/eventest.png">
+
+##### Disable Excess Logging
+
+When a non-audio Bluetooth device disconnects, the system may generate a large number of unnecessary log files on disk. To prevent this, create the following marker files:
+
+```shell
+cd /mnt/us/ && touch DISABLE_CORE_DUMP && touch DISABLE_CORE_DUMP_ALERT
+```
+
+Then invert the CoreDump flag in `/usr/bin/dmcc.sh` by removing the `!` after the first `if` condition:
+
+```shell
+vi /usr/bin/dmcc.sh
+```
+
+<img src="screenshots/dmcc.png">
+
+### Install
 
 1. Download the latest release from [Releases](https://github.com/qiuyukang/kindlebtcontroller.koplugin/releases)
 2. Extract and copy the `kindlebtcontroller.koplugin` directory to KOReader's plugin directory:
@@ -170,8 +263,8 @@ kindlebtcontroller.koplugin/
 ├── l10n/                        # Translation files
 │   └── en/
 │       └── kindlebtcontroller.po
-├── README.md                    # Chinese documentation
-└── README_EN.md                 # English documentation
+├── README.md                    # English documentation
+└── README_CN.md                 # Chinese documentation
 ```
 
 ### How It Works
