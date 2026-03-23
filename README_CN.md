@@ -52,21 +52,25 @@
 | **Kindle Paperwhite 12 (KPW6)** | ✅ 已验证 |
 
 > 📝 理论上更新版本的支持蓝牙的 Kindle 也是支持的。
+>
+> ⚠️ **警告**：比上述已验证型号更老的 Kindle 设备，例如 Kindle Oasis 1（KO）、Kindle Paperwhite 3（KPW3）等，**不支持**下面的蓝牙配对方式，也**不支持**本插件。请不要在这些设备上执行下面的蓝牙配对步骤，否则可能导致设备白屏并需要手动恢复。
 
 #### 环境要求
 
 - **软件**：Kindle 上已安装 [KOReader](https://github.com/koreader/koreader)
 - **控制器**：任意蓝牙 HID 手柄或遥控器（仅支持经典 BR/EDR 蓝牙，**不支持低功耗 BLE 蓝牙**）
 
-#### 前置准备：Kindle 蓝牙配对
+#### 安装前准备：完成蓝牙配对
 
 > ⚠️ **重要提示**：Kindle 原生系统不支持连接非音频蓝牙设备，需要进行特殊配置后才可以连接蓝牙键盘或手柄。
+>
+> ⚠️ **设备安全警告**：以下配对步骤仅适用于上面列出的已验证机型，以及更新且兼容的 Kindle 设备。请勿在 KO、KPW3 等不受支持的老型号上尝试这些步骤，否则可能造成白屏并需要手动恢复。
 
 在安装本插件之前，需要先让 Kindle 与蓝牙控制器完成配对。Kindle 原生系统默认不支持配对非音频设备，需要通过命令行操作。
 
 参考：[Kindle Bluetooth Pairing Guide (MobileRead)](https://www.mobileread.com/forums/showthread.php?t=369712)
 
-##### 修改蓝牙检测规则
+##### 1. 修改蓝牙检测规则
 ```shell
 # ssh 连接成功后切换到可读写模式
 mntroot rw
@@ -121,7 +125,7 @@ cd /etc/udev/rules.d/
 udevadm control --reload-rules && udevadm trigger
 ```
 
-##### 蓝牙配对
+##### 2. 进行蓝牙配对
 输入`ace_bt_cli`进入蓝牙工具箱, 输入`radiostate`查看蓝牙启动状态, 如果显示`ACEBTCLI getRadioState() state:1 status:0`说明蓝牙已经启用, 可以直接开始配对, 如果显示`ACEBTCLI getRadioState() state:0 status:0`则需要输入`enable`启用蓝牙
 
 <img src="screenshots/ace_bt_cli_enable.png">
@@ -142,7 +146,7 @@ udevadm control --reload-rules && udevadm trigger
 
 <img src="screenshots/eventest.png">
 
-##### 禁用日志
+##### 3. 禁用日志
 非音频蓝牙设备连接断开后会在磁盘上生成很多无效日志文件, 需要禁止这个动作:
 ```shell
 cd /mnt/us/ && touch DISABLE_CORE_DUMP && touch DISABLE_CORE_DUMP_ALERT
@@ -257,8 +261,8 @@ kindlebtcontroller.koplugin/
 ├── l10n/                        # 翻译文件目录
 │   └── en/
 │       └── kindlebtcontroller.po
-├── README.md                    # 中文文档
-└── README_EN.md                 # English documentation
+├── README.md                    # 英文文档
+└── README_CN.md                 # 中文文档
 ```
 
 ### 工作原理

@@ -52,21 +52,25 @@ This plugin has been tested and verified on the following Kindle models:
 | **Kindle Paperwhite 12 (KPW6)** | ✅ Verified |
 
 > 📝 Newer Kindle models with Bluetooth support should theoretically work as well.
+>
+> ⚠️ **Warning**: Older Kindle models than those listed above, such as Kindle Oasis 1 (KO) or Kindle Paperwhite 3 (KPW3), are **not supported** by this pairing method and are **not supported** by this plugin. Do **not** follow the Bluetooth pairing steps below on those devices, or the device may enter a white-screen state and require recovery.
 
 #### Requirements
 
 - **Software**: [KOReader](https://github.com/koreader/koreader) installed on your Kindle
 - **Controller**: Any Bluetooth HID gamepad or remote (Classic BR/EDR Bluetooth only, **BLE is NOT supported**)
 
-#### Prerequisites: Kindle Bluetooth Pairing
+#### Before You Install: Prepare Bluetooth Pairing
 
 > ⚠️ **Important**: Kindle's native system does not support connecting non-audio Bluetooth devices. Special configuration is required to connect Bluetooth keyboards or game controllers.
+>
+> ⚠️ **Device safety warning**: Do not use the following pairing steps on unsupported older Kindle models, including KO and KPW3. These steps are only intended for the tested models above and newer compatible models. Using them on unsupported devices may cause a white screen and require manual recovery.
 
 Before installing this plugin, you must first pair your Kindle with a Bluetooth controller. By default, the Kindle system does not allow pairing with non-audio Bluetooth devices, so the setup must be completed from the command line.
 
 Reference: [Kindle Bluetooth Pairing Guide (MobileRead)](https://www.mobileread.com/forums/showthread.php?t=369712)
 
-##### Update the Bluetooth Detection Rules
+##### 1. Update the Bluetooth Detection Rules
 
 ```shell
 # After connecting over SSH, switch the system partition to read-write mode.
@@ -122,7 +126,7 @@ cd /etc/udev/rules.d/
 udevadm control --reload-rules && udevadm trigger
 ```
 
-##### Pair the Bluetooth Device
+##### 2. Pair the Bluetooth Device
 
 Run `ace_bt_cli` to open the Bluetooth toolbox. Then run `radiostate` to check whether Bluetooth is enabled:
 
@@ -143,7 +147,7 @@ Open another terminal session and run `ls /dev/input/` to locate the Bluetooth i
 
 <img src="screenshots/eventest.png">
 
-##### Disable Excess Logging
+##### 3. Disable Excess Logging
 
 When a non-audio Bluetooth device disconnects, the system may generate a large number of unnecessary log files on disk. To prevent this, create the following marker files:
 
@@ -159,7 +163,7 @@ vi /usr/bin/dmcc.sh
 
 <img src="screenshots/dmcc.png">
 
-### Install
+### Install the Plugin
 
 1. Download the latest release from [Releases](https://github.com/qiuyukang/kindlebtcontroller.koplugin/releases)
 2. Extract and copy the `kindlebtcontroller.koplugin` directory to KOReader's plugin directory:
