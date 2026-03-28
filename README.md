@@ -205,9 +205,11 @@ return {
 }
 ```
 
-#### Finding Your Device Path
+> Note: In normal use, you usually do not need to edit `device_path` manually. When a Bluetooth controller is connected, the plugin will automatically find the correct path and start using it.
 
-The default device path is `/dev/input/event2`. If your controller uses a different path, you need to identify it correctly.
+#### Finding Your Device Path (Advanced / Troubleshooting)
+
+The sample default path is `/dev/input/event2`. In most cases, you no longer need to change this path manually; it is only useful when troubleshooting.
 
 After your Bluetooth controller is connected, run:
 
@@ -234,7 +236,8 @@ After installation, find "Bluetooth Controller" in the KOReader menu under Tools
 #### Menu Options
 
 - **Bluetooth Toggle** — Toggle Bluetooth on/off
-- **Connected Device** — Shows the currently connected device name
+- **Current Device** — Shows the device currently used to control Kindle
+- **Paired Bluetooth Devices** — Shows paired devices and device details
 - **Reload Device** — Manually reload the Bluetooth input device
 - **Key Tester** — Enter key detection mode to identify button codes
 - **Key Config** — View and edit all key mappings
@@ -279,7 +282,7 @@ A background watcher polls for device reconnection every 2 seconds. When a previ
 
 ### Troubleshooting
 
-- **Controller not detected**: Check `device_path` in config. Use `ls /dev/input` to find the correct event path.
+- **Controller not detected**: Make sure the Bluetooth device is connected. For troubleshooting, use `ls /dev/input` to check whether a new `eventX` device appears.
 - **Buttons not working**: Use "Key Tester" to verify button codes, then check mappings in "Key Config".
 - **Bluetooth won't turn on**: Ensure your Kindle model supports Bluetooth. Try toggling from Kindle's native settings first.
 - **Debug logs**: Search for `BT Plugin` in KOReader's `crash.log` for detailed event logs.
