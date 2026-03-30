@@ -1,6 +1,6 @@
 
 return {
-    -- 默认设备路径（兼容旧配置）
+    -- 默认设备路径
     device_path = "/dev/input/event2",
 
     -- 默认按键映射
