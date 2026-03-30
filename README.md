@@ -205,8 +205,6 @@ return {
 }
 ```
 
-> Note: In normal use, you usually do not need to edit `device_path` manually. When a Bluetooth controller is connected, the plugin will automatically find the correct path and start using it.
-
 #### Finding Your Device Path (Advanced / Troubleshooting)
 
 The sample default path is `/dev/input/event2`. In most cases, you no longer need to change this path manually; it is only useful when troubleshooting.

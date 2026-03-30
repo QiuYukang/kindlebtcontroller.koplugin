@@ -306,27 +306,6 @@ function BluetoothController:validateDevicePath()
     return true
 end
 
-function BluetoothController:getResolvedDevicePath()
-    local connected_name = self:getConnectedDeviceName()
-    if connected_name then
-        local auto_path = self:getInputDevicePathByName(connected_name)
-        if auto_path then
-            return auto_path, "auto"
-        end
-    end
-
-    local configured_path = self.config.device_path
-    if configured_path and configured_path ~= "" then
-        local file = io.open(configured_path, "r")
-        if file then
-            file:close()
-            return configured_path, "configured"
-        end
-    end
-
-    return configured_path, "missing"
-end
-
 --- 读取输入设备的名称（通过 /sys/class/input/eventX/device/name）
 function BluetoothController:getInputDeviceName(path)
     local event_name = path:match("(event%d+)$")
@@ -343,7 +322,7 @@ end
 
 function BluetoothController:ensureConnected()
     local input = Device.input
-    local path = self:getResolvedDevicePath()
+    local path = self.config.device_path
     if not input or not path then return false end
 
     if input.opened_devices and input.opened_devices[path] then
@@ -362,13 +341,16 @@ function BluetoothController:ensureConnected()
     if not ok then
         logger.warn("BT Plugin: Failed to open -> " .. tostring(err))
     end
-    if ok then _G._bt_was_connected = true end
+    if ok then
+        _G._bt_was_connected = true
+        _G._bt_last_device_name = self:getInputDeviceName(path)
+    end
     return ok
 end
 
 function BluetoothController:reloadDevice()
     local input = Device.input
-    local path = self:getResolvedDevicePath()
+    local path = self.config.device_path
     if not input or not path then return false end
 
     if input.opened_devices and input.opened_devices[path] then
@@ -382,6 +364,7 @@ function BluetoothController:reloadDevice()
     -- 重新注册输入钩子，确保 close/open 后钩子仍然有效
     if ok then
         _G._bt_was_connected = true
+        _G._bt_last_device_name = self:getInputDeviceName(path)
         self:registerInputHook()
     end
 
@@ -393,7 +376,7 @@ function BluetoothController:isDeviceAvailable()
     if not _G.KOBluetoothStateManager or not _G.KOBluetoothStateManager:isOn() then
         return false
     end
-    local path = self:getResolvedDevicePath()
+    local path = self.config.device_path
     if not path then return false end
     local file = io.open(path, "r")
     if file then
@@ -444,6 +427,7 @@ function BluetoothController:scheduleReconnectCheck()
                     local ok = ctrl:reloadDevice()
                     local device_name = ctrl:getConnectedDeviceName() or _("未知设备")
                     if ok then
+                        _G._bt_last_device_name = device_name
                         UIManager:show(InfoMessage:new{
                             text = string.format(_("蓝牙设备已连接：%s"), device_name),
                             timeout = 2
@@ -453,8 +437,11 @@ function BluetoothController:scheduleReconnectCheck()
             end)
         elseif not available_now and _G._bt_was_connected then
             _G._bt_was_connected = false
+            local device_name = _G._bt_last_device_name
             UIManager:show(InfoMessage:new{
-                text = _("蓝牙设备已断开"),
+                text = device_name
+                    and string.format(_("蓝牙设备已断开：%s"), device_name)
+                    or _("蓝牙设备已断开"),
                 timeout = 2,
             })
         end
@@ -541,9 +528,11 @@ function BluetoothController:getInputDevicePathByName(target_name)
     return nil
 end
 
-function BluetoothController:getPairedDeviceSummaryLines(device, connected_name)
+function BluetoothController:getPairedDeviceSummaryLines(device)
     local lines = {}
     local display_name = device.name or _("未知设备")
+    local input_path = self:getInputDevicePathByName(device.name)
+    local is_connected = input_path ~= nil
 
     table.insert(lines, display_name)
     table.insert(lines, string.format(_("MAC：%s"), device.mac or _("未知")))
@@ -553,10 +542,8 @@ function BluetoothController:getPairedDeviceSummaryLines(device, connected_name)
         table.insert(lines, string.format(_("地址类型：%s"), device.addr_type))
     end
 
-    local is_connected = connected_name and device.name and connected_name == device.name
     table.insert(lines, string.format(_("连接状态：%s"), is_connected and _("已连接") or _("未连接")))
 
-    local input_path = self:getInputDevicePathByName(device.name)
     if input_path then
         table.insert(lines, string.format(_("输入设备：%s"), input_path))
     else
@@ -568,76 +555,109 @@ end
 
 function BluetoothController:getPairedDeviceListLabel(device, connected_name)
     local display_name = device.name or _("未知设备")
-    local is_connected = connected_name and device.name and connected_name == device.name
-    if is_connected then
+    local input_path = self:getInputDevicePathByName(device.name)
+    if input_path then
         return string.format(_("%s（已连接）"), display_name)
     end
     return display_name
 end
 
-function BluetoothController:getCurrentControlDeviceName()
-    if not _G.KOBluetoothStateManager or not _G.KOBluetoothStateManager:isOn() then
-        return nil, "bluetooth_off"
+function BluetoothController:usePairedBluetoothDevice(device)
+    local input_path = self:getInputDevicePathByName(device.name)
+    if not input_path then
+        UIManager:show(InfoMessage:new{
+            text = _("未找到该设备对应的输入路径"),
+            timeout = 3,
+        })
+        return
     end
 
-    local resolved_path = self:getResolvedDevicePath()
-    if not resolved_path then
-        return nil, "none"
-    end
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local confirm_dialog
 
-    local device_name = self:getInputDeviceName(resolved_path)
-    if device_name and device_name ~= "" then
-        return device_name, resolved_path
-    end
-
-    local connected_name = self:getConnectedDeviceName()
-    if connected_name and connected_name ~= "" then
-        return connected_name, resolved_path
-    end
-
-    return nil, resolved_path
+    confirm_dialog = ButtonDialog:new{
+        title = table.concat({
+            _("确认使用此设备控制"),
+            "",
+            string.format(_("设备名称：%s"), device.name or _("未知设备")),
+            string.format(_("设备路径：%s"), input_path),
+        }, "\n"),
+        buttons = {
+            {
+                {
+                    text = _("取消"),
+                    callback = function()
+                        UIManager:close(confirm_dialog)
+                    end,
+                },
+                {
+                    text = _("确认"),
+                    callback = function()
+                        UIManager:close(confirm_dialog)
+                        self.config.device_path = input_path
+                        self:saveSettings()
+                        self:onBluetoothReloadDevice()
+                        UIManager:show(InfoMessage:new{
+                            text = string.format(
+                                _("已将控制设备切换为：%s\n已写入 settings/kindlebtcontroller.lua"),
+                                device.name or input_path
+                            ),
+                            timeout = 4,
+                        })
+                    end,
+                },
+            },
+        },
+    }
+    UIManager:show(confirm_dialog)
 end
 
-function BluetoothController:showPairedBluetoothDeviceDetails(device, connected_name)
-    local lines = self:getPairedDeviceSummaryLines(device, connected_name)
+function BluetoothController:showPairedBluetoothDeviceDetails(device)
+    local lines = self:getPairedDeviceSummaryLines(device)
     local ButtonDialog = require("ui/widget/buttondialog")
+    local input_path = self:getInputDevicePathByName(device.name)
 
     if self.paired_device_detail_dialog then
         UIManager:close(self.paired_device_detail_dialog)
         self.paired_device_detail_dialog = nil
     end
 
+    local button_rows = {}
+    if input_path then
+        table.insert(button_rows, {
+            {
+                text = _("使用此设备控制"),
+                callback = function()
+                    if self.paired_device_detail_dialog then
+                        UIManager:close(self.paired_device_detail_dialog)
+                        self.paired_device_detail_dialog = nil
+                    end
+                    self:usePairedBluetoothDevice(device)
+                end,
+            },
+        })
+    end
+
+    table.insert(button_rows, {
+        {
+            text = _("关闭"),
+            callback = function()
+                if self.paired_device_detail_dialog then
+                    UIManager:close(self.paired_device_detail_dialog)
+                    self.paired_device_detail_dialog = nil
+                end
+            end,
+        },
+    })
+
     self.paired_device_detail_dialog = ButtonDialog:new{
         title = table.concat(lines, "\n"),
-        buttons = {
-            {
-                {
-                    text = _("关闭"),
-                    callback = function()
-                        if self.paired_device_detail_dialog then
-                            UIManager:close(self.paired_device_detail_dialog)
-                            self.paired_device_detail_dialog = nil
-                        end
-                    end,
-                },
-            },
-        },
+        buttons = button_rows,
         tap_close_callback = function()
             self.paired_device_detail_dialog = nil
         end,
     }
     UIManager:show(self.paired_device_detail_dialog)
-end
-
-function BluetoothController:getCurrentControlDeviceDisplay()
-    local device_name = self:getCurrentControlDeviceName()
-    if device_name then
-        return string.format(_("当前设备：%s"), device_name)
-    end
-    if not _G.KOBluetoothStateManager or not _G.KOBluetoothStateManager:isOn() then
-        return _("当前设备：蓝牙已关闭")
-    end
-    return _("当前设备：无")
 end
 
 function BluetoothController:getPairedBluetoothDeviceMenuItems()
@@ -662,16 +682,15 @@ function BluetoothController:getPairedBluetoothDeviceMenuItems()
         }
     end
 
-    local connected_name = self:getConnectedDeviceName()
     local menu_items = {}
 
     for _, device in ipairs(devices) do
         local captured_device = device
         table.insert(menu_items, {
-            text = self:getPairedDeviceListLabel(captured_device, connected_name),
+            text = self:getPairedDeviceListLabel(captured_device),
             keep_menu_open = true,
             callback = function()
-                self:showPairedBluetoothDeviceDetails(captured_device, self:getConnectedDeviceName())
+                self:showPairedBluetoothDeviceDetails(captured_device)
             end,
         })
     end
@@ -813,14 +832,14 @@ function BluetoothController:handleInputEvent(ev)
     end
 
     if actions then
-        logger.info(string.format("BT Plugin: Matched ev(type=%d code=%d value=%d) → %s",
+        logger.dbg(string.format("BT Plugin: Matched ev(type=%d code=%d value=%d) → %s",
                 ev.type, ev.code, ev.value, table.concat(actions, ", ")))
         for _, action_id in ipairs(actions) do
             self:executeAction(action_id)
         end
         ev.type = -1
     else
-        logger.info(string.format("BT Plugin: Unmatched ev(type=%d code=%d value=%d)", ev.type, ev.code, ev.value))
+        logger.dbg(string.format("BT Plugin: Unmatched ev(type=%d code=%d value=%d)", ev.type, ev.code, ev.value))
     end
 end
 
@@ -1144,10 +1163,10 @@ function BluetoothController:showKeyMappingEditor(page)
 
     local button_rows = {}
 
-    -- 当前控制设备（显示在最上方，不可点击）
-    local device_display = self:getCurrentControlDeviceDisplay()
+    -- 设备路径（显示在最上方，不可点击）
+    local device_path = self.config.device_path or _("未设置")
     table.insert(button_rows, {
-        { text = device_display, enabled = false },
+        { text = string.format(_("设备路径：%s"), device_path), enabled = false },
     })
 
     if #all_items == 0 then
@@ -1691,7 +1710,7 @@ function BluetoothController:addToMainMenu(menu_items)
                     if not _G.KOBluetoothStateManager or not _G.KOBluetoothStateManager:isOn() then
                         return _("当前设备：蓝牙已关闭")
                     end
-                    local device_name = self:getCurrentControlDeviceName()
+                    local device_name = self:getInputDeviceName(self.config.device_path)
                     if not device_name then
                         return _("当前设备：无")
                     end

@@ -52,6 +52,9 @@ msgstr "✗ Bluetooth Device Connection Failed"
 msgid "蓝牙设备已断开"
 msgstr "Bluetooth Device Disconnected"
 
+msgid "蓝牙设备已断开：%s"
+msgstr "Bluetooth Device Disconnected: %s"
+
 msgid "蓝牙设备已连接"
 msgstr "Bluetooth Device Connected"
 
@@ -90,6 +93,24 @@ msgstr "No paired Bluetooth devices"
 
 msgid "%s（已连接）"
 msgstr "%s (Connected)"
+
+msgid "未找到该设备对应的输入路径"
+msgstr "No input path found for this device"
+
+msgid "确认使用此设备控制"
+msgstr "Confirm Use This Device"
+
+msgid "使用此设备控制"
+msgstr "Use This Device"
+
+msgid "确认"
+msgstr "Confirm"
+
+msgid "设备名称：%s"
+msgstr "Device Name: %s"
+
+msgid "已将控制设备切换为：%s\n已写入 settings/kindlebtcontroller.lua"
+msgstr "Control device switched to: %s\nSaved to settings/kindlebtcontroller.lua"
 
 msgid "下一页"
 msgstr "Next Page"
@@ -253,6 +274,9 @@ msgstr "Key %s (%d) has no mapping"
 
 msgid "未设置"
 msgstr "Not Set"
+
+msgid "设备路径：%s"
+msgstr "Device Path: %s"
 
 msgid "按键配置（点击可编辑）"
 msgstr "Key Config (Tap to edit)"
