@@ -13,14 +13,14 @@ msgstr "Bluetooth Controller"
 msgid "蓝牙开关"
 msgstr "Bluetooth Toggle"
 
-msgid "已连接设备：蓝牙已关闭"
-msgstr "Connected Device: Bluetooth Off"
+msgid "当前设备：蓝牙已关闭"
+msgstr "Current Device: Bluetooth Off"
 
-msgid "已连接设备：无"
-msgstr "Connected Device: None"
+msgid "当前设备：无"
+msgstr "Current Device: None"
 
-msgid "已连接设备：%s"
-msgstr "Connected Device: %s"
+msgid "当前设备：%s"
+msgstr "Current Device: %s"
 
 msgid "重载设备"
 msgstr "Reload Device"
@@ -52,8 +52,65 @@ msgstr "✗ Bluetooth Device Connection Failed"
 msgid "蓝牙设备已断开"
 msgstr "Bluetooth Device Disconnected"
 
+msgid "蓝牙设备已断开：%s"
+msgstr "Bluetooth Device Disconnected: %s"
+
 msgid "蓝牙设备已连接"
 msgstr "Bluetooth Device Connected"
+
+msgid "已配对蓝牙设备"
+msgstr "Paired Bluetooth Devices"
+
+msgid "MAC：%s"
+msgstr "MAC: %s"
+
+msgid "类型：%s"
+msgstr "Type: %s"
+
+msgid "地址类型：%s"
+msgstr "Address Type: %s"
+
+msgid "连接状态：%s"
+msgstr "Connection: %s"
+
+msgid "已连接"
+msgstr "Connected"
+
+msgid "未连接"
+msgstr "Not Connected"
+
+msgid "输入设备：%s"
+msgstr "Input Device: %s"
+
+msgid "输入设备：未发现"
+msgstr "Input Device: Not Found"
+
+msgid "未找到蓝牙配对配置文件"
+msgstr "Bluetooth pairing config file not found"
+
+msgid "暂无已配对蓝牙设备"
+msgstr "No paired Bluetooth devices"
+
+msgid "%s（已连接）"
+msgstr "%s (Connected)"
+
+msgid "未找到该设备对应的输入路径"
+msgstr "No input path found for this device"
+
+msgid "确认使用此设备控制"
+msgstr "Confirm Use This Device"
+
+msgid "使用此设备控制"
+msgstr "Use This Device"
+
+msgid "确认"
+msgstr "Confirm"
+
+msgid "设备名称：%s"
+msgstr "Device Name: %s"
+
+msgid "已将控制设备切换为：%s\n已写入 settings/kindlebtcontroller.lua"
+msgstr "Control device switched to: %s\nSaved to settings/kindlebtcontroller.lua"
 
 msgid "下一页"
 msgstr "Next Page"
