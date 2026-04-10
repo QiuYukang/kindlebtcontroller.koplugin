@@ -41,8 +41,7 @@ function BluetoothStateManager:isOn()
     return self._state_cache.value
 end
 
--- 私有方法：实际检测蓝牙状态
-function BluetoothStateManager:_updateState()
+function BluetoothStateManager:getStateValue()
     local status, result = pcall(function()
         -- 使用非阻塞方式，添加超时
         local cmd = "timeout 1 lipc-get-prop com.lab126.btfd BTstate 2>/dev/null || echo '0'"
@@ -52,8 +51,13 @@ function BluetoothStateManager:_updateState()
         f:close()
         return content
     end)
-    
-    local new_value = (status and result and (tonumber(result) or 0) > 0)
+
+    return (status and tonumber(result)) or 0
+end
+
+-- 私有方法：实际检测蓝牙状态
+function BluetoothStateManager:_updateState()
+    local new_value = self:getStateValue() > 0
     
     -- 只有状态变化时才更新缓存并通知监听者
     if new_value ~= self._state_cache.value then

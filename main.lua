@@ -715,9 +715,32 @@ end
 
 function BluetoothController:setBluetoothState(enable)
     local flight_mode_value = enable and 0 or 1
+    local expected_state = enable and 1 or 0
+
     os.execute(string.format("lipc-set-prop com.lab126.btfd BTflightMode %d", flight_mode_value))
-    local msg = enable and _("蓝牙已开启") or _("蓝牙已禁用")
+
+    local actual_state = _G.KOBluetoothStateManager:getStateValue()
+    for _ = 1, 3 do
+        if actual_state == expected_state then
+            break
+        end
+        os.execute("usleep 200000")
+        actual_state = _G.KOBluetoothStateManager:getStateValue()
+    end
+
+    _G.KOBluetoothStateManager:_updateState()
+
+    local success = actual_state == expected_state
+    local msg
+    if success then
+        msg = enable and _("蓝牙已开启") or _("蓝牙已禁用")
+    else
+        msg = enable and _("蓝牙开启失败，请前往 Kindle 系统设置中操作") or _("蓝牙关闭失败，请前往 Kindle 系统设置中操作")
+    end
+
+    self.target_state = actual_state > 0
     UIManager:show(InfoMessage:new{ text = msg, timeout = 2 })
+    return success
 end
 
 function BluetoothController:onDispatcherRegisterActions()
@@ -766,7 +789,6 @@ function BluetoothController:onToggleBluetooth()
     self.target_state = next_state
     self.last_action_time = now
     self:setBluetoothState(next_state)
-    _G.KOBluetoothStateManager:_updateState()
 end
 
 function BluetoothController:onBluetoothReloadDevice()

@@ -37,6 +37,12 @@ msgstr "Bluetooth Enabled"
 msgid "蓝牙已禁用"
 msgstr "Bluetooth Disabled"
 
+msgid "蓝牙开启失败，请前往 Kindle 系统设置中操作"
+msgstr "Failed to enable Bluetooth. Please use Kindle system settings."
+
+msgid "蓝牙关闭失败，请前往 Kindle 系统设置中操作"
+msgstr "Failed to disable Bluetooth. Please use Kindle system settings."
+
 msgid "开/关 蓝牙"
 msgstr "Toggle Bluetooth"
 
