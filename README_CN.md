@@ -2,11 +2,11 @@
 
 [🇬🇧 English](README.md)
 
-一个 KOReader 插件，让你可以用蓝牙手柄/遥控器控制 Kindle 阅读 —— 翻页、调节亮度、跳转章节等。
+KOReader 蓝牙插件，支持蓝牙手柄/遥控器控制 Kindle 阅读 —— 翻页、调节亮度、刷新、跳转章节等。
 
 ### 功能特性
 
-- **蓝牙控制** — 在 KOReader 菜单中直接开关蓝牙
+- **蓝牙控制** — 在 KOReader 菜单中直接开关蓝牙、查看蓝牙设备列表和详细信息
 - **完全自定义按键映射** — 将手柄按键或摇杆轴映射到 20+ 种动作
 - **多动作绑定** — 单个按键可同时触发多个动作
 - **按键检测** — 实时检测手柄按键码，支持直接在检测界面添加/编辑映射
@@ -58,7 +58,9 @@
 #### 环境要求
 
 - **软件**：Kindle 上已安装 [KOReader](https://github.com/koreader/koreader)
-- **控制器**：任意蓝牙 HID 手柄或遥控器（仅支持经典 BR/EDR 蓝牙，**不支持低功耗 BLE 蓝牙**）
+- **控制器**：任意蓝牙 HID 手柄或遥控器
+  - 使用 `ace_bt_cli` 配对时：仅支持经典 BR/EDR 蓝牙，**不支持 BLE**
+  - 使用 `kindle-hid-passthrough` 配对时：支持经典蓝牙，也可支持部分 BLE HID 设备
 
 #### 安装前准备：完成蓝牙配对
 
@@ -66,9 +68,24 @@
 >
 > ⚠️ **设备安全警告**：以下配对步骤仅适用于上面列出的已验证机型，以及更新且兼容的 Kindle 设备。请勿在 KO、KPW3 等不受支持的老型号上尝试这些步骤，否则可能造成白屏并需要手动恢复。
 
-在安装本插件之前，需要先让 Kindle 与蓝牙控制器完成配对。Kindle 原生系统默认不支持配对非音频设备，需要通过命令行操作。
+在安装本插件之前，需要先让 Kindle 与蓝牙控制器完成配对。你可以任选以下一种方式：
 
-参考：[Kindle Bluetooth Pairing Guide (MobileRead)](https://www.mobileread.com/forums/showthread.php?t=369712)
+- **方案 A：`ace_bt_cli`**
+  - 沿用 Kindle 原生蓝牙栈
+  - 更贴近当前插件最初的配对流程
+  - 仅支持经典 BR/EDR 蓝牙设备
+- **方案 B：`kindle-hid-passthrough`**
+  - 使用用户态蓝牙 HID 栈，通过 `/dev/uhid` 暴露输入设备
+  - 兼容性通常更好，也可支持部分 BLE HID 设备
+  - 该服务运行时会接管默认蓝牙栈，Kindle 原生蓝牙功能（如蓝牙音频）不可同时使用
+
+参考：
+
+- [Kindle Bluetooth Pairing Guide (MobileRead)](https://www.mobileread.com/forums/showthread.php?t=369712)
+- [kindle-hid-passthrough](https://github.com/zampierilucas/kindle-hid-passthrough)
+
+<details>
+<summary><strong>方案 A：使用 ace_bt_cli 配对（原生蓝牙协议栈）</strong></summary>
 
 ##### 1. 修改蓝牙检测规则
 ```shell
@@ -156,6 +173,68 @@ cd /mnt/us/ && touch DISABLE_CORE_DUMP && touch DISABLE_CORE_DUMP_ALERT
 vi /usr/bin/dmcc.sh
 ```
 <img src="screenshots/dmcc.png">
+</details>
+
+<details>
+<summary><strong>方案 B：使用 kindle-hid-passthrough 配对</strong></summary>
+
+`kindle-hid-passthrough` 会在用户态处理蓝牙 HID 协议，并通过 `/dev/uhid` 创建设备节点。对这个插件来说，只要最终能在 `/dev/input/eventX` 中看到控制器输入，就可以正常使用。
+
+推荐流程：
+
+##### 1. 安装 kindle-hid-passthrough
+
+优先参考它项目首页里的最新安装说明：
+
+- KindleForge 安装：在设备上的 KindleForge 中搜索 `Kindle HID Passthrough`
+- 手动安装：下载 release 包后解压到 `/mnt/us/kindle_hid_passthrough/`
+
+##### 2. 运行交互式安装脚本
+
+```shell
+cd /mnt/us/kindle_hid_passthrough
+sh scripts/install.sh
+```
+
+安装脚本通常会帮你完成这些事情：
+
+- 配对蓝牙设备
+- 安装 udev 规则
+- 配置开机自启
+- 安装 BTManager 触屏管理界面
+
+##### 3. 配对设备
+
+可以二选一：
+
+- 在 Kindle 触屏界面里打开 BTManager，扫描并配对设备
+- 或通过 SSH 运行：
+
+```shell
+/mnt/us/kindle_hid_passthrough/kindle-hid-passthrough --pair
+```
+
+##### 4. 启动后台服务
+
+```shell
+# 如果安装了 upstart 服务
+start hid-passthrough
+
+# 或直接以前台/守护方式运行
+/mnt/us/kindle_hid_passthrough/kindle-hid-passthrough --daemon
+```
+
+##### 5. 确认输入设备已出现
+
+```shell
+ls /dev/input
+evtest /dev/input/eventX
+```
+
+确认蓝牙控制器按键能正常产生输入事件后，再回到本插件里配置按键映射即可。
+
+> ⚠️ **注意**：`kindle-hid-passthrough` 运行时会替换默认蓝牙栈，此时 Kindle 原生蓝牙服务（例如蓝牙音频）不能同时使用。是否选择它，取决于你更看重兼容性，还是更希望保留原生蓝牙行为。
+</details>
 
 ### 安装步骤
 
@@ -199,7 +278,7 @@ return {
 }
 ```
 
-#### 查找设备路径（高级/排错）
+#### 查找设备路径
 
 默认配置中示例路径为 `/dev/input/event2`。大多数情况下，你不再需要手动修改这个路径；只有在排错时，才需要手动查看。
 

@@ -58,7 +58,9 @@ This plugin has been tested and verified on the following Kindle models:
 #### Requirements
 
 - **Software**: [KOReader](https://github.com/koreader/koreader) installed on your Kindle
-- **Controller**: Any Bluetooth HID gamepad or remote (Classic BR/EDR Bluetooth only, **BLE is NOT supported**)
+- **Controller**: Any Bluetooth HID gamepad or remote
+  - With `ace_bt_cli`: Classic BR/EDR Bluetooth only, **BLE is NOT supported**
+  - With `kindle-hid-passthrough`: Classic Bluetooth works, and some BLE HID devices can also work
 
 #### Before You Install: Prepare Bluetooth Pairing
 
@@ -66,9 +68,24 @@ This plugin has been tested and verified on the following Kindle models:
 >
 > ⚠️ **Device safety warning**: Do not use the following pairing steps on unsupported older Kindle models, including KO and KPW3. These steps are only intended for the tested models above and newer compatible models. Using them on unsupported devices may cause a white screen and require manual recovery.
 
-Before installing this plugin, you must first pair your Kindle with a Bluetooth controller. By default, the Kindle system does not allow pairing with non-audio Bluetooth devices, so the setup must be completed from the command line.
+Before installing this plugin, you must first pair your Kindle with a Bluetooth controller. You can choose either of the following approaches:
 
-Reference: [Kindle Bluetooth Pairing Guide (MobileRead)](https://www.mobileread.com/forums/showthread.php?t=369712)
+- **Option A: `ace_bt_cli`**
+  - Uses the Kindle's native Bluetooth stack
+  - Closely matches the pairing flow this plugin was originally designed around
+  - Supports Classic BR/EDR Bluetooth devices only
+- **Option B: `kindle-hid-passthrough`**
+  - Uses a userspace Bluetooth HID stack and exposes input devices through `/dev/uhid`
+  - Usually offers better compatibility and can also work with some BLE HID devices
+  - While active, it takes over the default Bluetooth stack, so native Kindle Bluetooth features such as audio cannot be used at the same time
+
+References:
+
+- [Kindle Bluetooth Pairing Guide (MobileRead)](https://www.mobileread.com/forums/showthread.php?t=369712)
+- [kindle-hid-passthrough](https://github.com/zampierilucas/kindle-hid-passthrough)
+
+<details>
+<summary><strong>Option A: Pair with ace_bt_cli (native Bluetooth stack)</strong></summary>
 
 ##### 1. Update the Bluetooth Detection Rules
 
@@ -162,6 +179,69 @@ vi /usr/bin/dmcc.sh
 ```
 
 <img src="screenshots/dmcc.png">
+
+</details>
+
+<details>
+<summary><strong>Option B: Pair with kindle-hid-passthrough</strong></summary>
+
+`kindle-hid-passthrough` handles Bluetooth HID in userspace and creates Linux input devices through `/dev/uhid`. For this plugin, that is sufficient: as long as your controller appears under `/dev/input/eventX`, it can be used for key mapping and actions.
+
+Recommended flow:
+
+##### 1. Install kindle-hid-passthrough
+
+Follow the latest instructions from its project page:
+
+- KindleForge install: search for `Kindle HID Passthrough` in KindleForge on the device
+- Manual install: download the latest release and extract it to `/mnt/us/kindle_hid_passthrough/`
+
+##### 2. Run the interactive installer
+
+```shell
+cd /mnt/us/kindle_hid_passthrough
+sh scripts/install.sh
+```
+
+The installer can typically help with:
+
+- pairing Bluetooth devices
+- installing udev rules
+- configuring autostart
+- installing the BTManager touchscreen UI
+
+##### 3. Pair your device
+
+Choose one of these:
+
+- Open BTManager on the Kindle touchscreen and pair there
+- Or pair over SSH:
+
+```shell
+/mnt/us/kindle_hid_passthrough/kindle-hid-passthrough --pair
+```
+
+##### 4. Start the daemon
+
+```shell
+# If the upstart service was installed
+start hid-passthrough
+
+# Or run it directly
+/mnt/us/kindle_hid_passthrough/kindle-hid-passthrough --daemon
+```
+
+##### 5. Confirm that input devices appear
+
+```shell
+ls /dev/input
+evtest /dev/input/eventX
+```
+
+Once button presses show up correctly, return to this plugin and configure key mappings as usual.
+
+> ⚠️ **Note**: While `kindle-hid-passthrough` is active, it replaces the native Bluetooth stack. If you rely on native Kindle Bluetooth features such as audio, you may prefer the `ace_bt_cli` approach instead.
+</details>
 
 ### Install the Plugin
 
